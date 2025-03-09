@@ -25,55 +25,12 @@ struct MerchantManagementView: View {
     
     var body: some View {
         NavigationView {
-            VStack(spacing: 0) {
-                // Merchant Overview Cards
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 16) {
-                        MetricCard(
-                            title: "Total Merchants",
-                            value: "12",
-                            icon: "building.2.fill",
-                            color: .blue
-                        )
-                        
-                        MetricCard(
-                            title: "Pending Approval",
-                            value: "3",
-                            icon: "clock.fill",
-                            color: .orange
-                        )
-                        
-                        MetricCard(
-                            title: "Processing Volume",
-                            value: "$45,678",
-                            icon: "chart.line.uptrend.xyaxis.fill",
-                            color: .green
-                        )
-                    }
-                    .padding()
-                }
-                
-                // Merchant Status Tabs
-                Picker("Status", selection: $selectedTab) {
-                    Text("Active").tag("Active")
-                    Text("Pending").tag("Pending")
-                    Text("Suspended").tag("Suspended")
-                }
-                .pickerStyle(.segmented)
-                .padding()
-                
-                // Merchant List
-                List {
-                    ForEach(0..<10) { _ in
-                        MerchantRow()
-                            .onTapGesture {
-                                selectedMerchant = Merchant()
-                            }
-                    }
-                }
-                .listStyle(.plain)
-            }
-            .ignoresSafeArea(edges: .horizontal)
+            MerchantContentView(
+                searchText: $searchText,
+                selectedMerchant: $selectedMerchant,
+                showingAddMerchant: $showingAddMerchant,
+                selectedTab: $selectedTab
+            )
             .searchable(text: $searchText, prompt: "Search merchants...")
             .navigationTitle("Merchants")
             .navigationBarTitleDisplayMode(.inline)
@@ -96,6 +53,93 @@ struct MerchantManagementView: View {
             }
         }
         .navigationViewStyle(.stack)
+    }
+}
+
+// Extract the content view to reduce complexity
+struct MerchantContentView: View {
+    @Binding var searchText: String
+    @Binding var selectedMerchant: Merchant?
+    @Binding var showingAddMerchant: Bool
+    @Binding var selectedTab: String
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            // Merchant Overview Cards
+            MerchantOverviewCardsView()
+            
+            // Merchant Status Tabs
+            Picker("Status", selection: $selectedTab) {
+                Text("Active").tag("Active")
+                Text("Pending").tag("Pending")
+                Text("Suspended").tag("Suspended")
+            }
+            .pickerStyle(.segmented)
+            .padding()
+            
+            // Merchant List
+            MerchantListView(selectedMerchant: $selectedMerchant)
+        }
+        .ignoresSafeArea(edges: .horizontal)
+    }
+}
+
+// Extract the overview cards to a separate view
+struct MerchantOverviewCardsView: View {
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 16) {
+                MetricCard(
+                    title: "Total Merchants",
+                    value: "12",
+                    icon: "building.2.fill",
+                    color: .blue
+                )
+                
+                MetricCard(
+                    title: "Pending Approval",
+                    value: "3",
+                    icon: "clock.fill",
+                    color: .orange
+                )
+                
+                MetricCard(
+                    title: "Processing Volume",
+                    value: "$45,678",
+                    icon: "chart.line.uptrend.xyaxis.fill",
+                    color: .green
+                )
+            }
+            .padding()
+        }
+    }
+}
+
+// Extract the merchant list to a separate view
+struct MerchantListView: View {
+    @Binding var selectedMerchant: Merchant?
+    
+    var body: some View {
+        List {
+            ForEach(0..<10) { index in
+                MerchantRow()
+                    .onTapGesture {
+                        // Create a sample merchant with all required parameters
+                        selectedMerchant = Merchant(
+                            id: "M\(10000 + index)",
+                            name: "Sample Merchant \(index + 1)",
+                            businessType: "Retail",
+                            contactEmail: "contact\(index + 1)@example.com",
+                            contactPhone: "+1 869-123-\(4500 + index)",
+                            address: "\(index + 1) Main Street, Basseterre",
+                            taxId: "TAX\(10000 + index)",
+                            status: "Active",
+                            createdAt: Date()
+                        )
+                    }
+            }
+        }
+        .listStyle(.plain)
     }
 }
 
@@ -310,16 +354,4 @@ struct MerchantOnboardingView: View {
     }
 }
 
-struct Merchant: Identifiable {
-    let id = UUID()
-    var businessName: String = ""
-    var registrationNumber: String = ""
-    var businessType: String = ""
-    var email: String = ""
-    var phone: String = ""
-    var address: String = ""
-    var status: MerchantStatus = .active
-    var processingVolume: Decimal = 0
-    var transactionLimit: Decimal = 5000
-    var processingFee: Decimal = 0.015
-} 
+// struct Merchant is defined in MerchantManager.swift 

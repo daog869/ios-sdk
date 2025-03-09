@@ -1,5 +1,10 @@
 import SwiftUI
 import SwiftData
+import Vizion_Gateway
+import Charts
+
+// Using types directly from the main module
+// No need for struct imports or _exported imports
 
 struct PaymentView: View {
     let paymentMethod: PaymentMethod
@@ -89,9 +94,11 @@ struct PaymentView: View {
     private func iconForPaymentMethod(_ method: PaymentMethod) -> String {
         switch method {
         case .debitCard: return "creditcard.fill"
+        case .creditCard: return "creditcard.circle.fill"
         case .bankTransfer: return "building.columns.fill"
         case .mobileMoney: return "iphone.gen3"
         case .qrCode: return "qrcode"
+        case .wallet: return "wallet.pass.fill"
         }
     }
     
@@ -101,28 +108,26 @@ struct PaymentView: View {
         isProcessing = true
         
         // Simulate payment processing
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: {
             let transaction = Transaction(
                 amount: amount,
-                merchantName: merchantName,
-                customerID: "USER123", // In real app, get from authenticated user
-                type: .oneTime,
+                type: TransactionType.payment,
                 paymentMethod: paymentMethod,
-                description: transactionDescription.isEmpty ? nil : transactionDescription,
-                reference: reference
+                transactionDescription: transactionDescription.isEmpty ? nil : transactionDescription,
+                merchantId: "MERCH123", // In real app, get from authenticated merchant
+                merchantName: merchantName,
+                reference: reference ?? UUID().uuidString
             )
             
             modelContext.insert(transaction)
             
             isProcessing = false
             showingConfirmation = true
-        }
+        })
     }
 }
 
 #Preview {
-    NavigationView {
-        PaymentView(paymentMethod: .debitCard)
-            .modelContainer(for: Transaction.self, inMemory: true)
-    }
+    PaymentView(paymentMethod: .creditCard)
+        .modelContainer(for: Transaction.self, inMemory: true)
 } 

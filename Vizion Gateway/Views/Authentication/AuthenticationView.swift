@@ -248,7 +248,7 @@ struct MainAppView: View {
     
     var body: some View {
         TabView {
-            DashboardView()
+            AuthDashboardPreview()
                 .tabItem {
                     Label("Dashboard", systemImage: "chart.bar.fill")
                 }
@@ -267,7 +267,7 @@ struct MainAppView: View {
     }
 }
 
-struct DashboardView: View {
+struct AuthDashboardPreview: View {
     var body: some View {
         NavigationView {
             ScrollView {
@@ -302,7 +302,7 @@ struct DashboardView: View {
                             .padding(.horizontal)
                         
                         ForEach(1...5, id: \.self) { _ in
-                            DashboardTransactionRow()
+                            AuthTransactionRow()
                         }
                     }
                 }
@@ -335,7 +335,7 @@ struct QuickActionButton: View {
     }
 }
 
-struct DashboardTransactionRow: View {
+struct AuthTransactionRow: View {
     var body: some View {
         HStack {
             Image(systemName: "arrow.right.circle.fill")
@@ -370,7 +370,7 @@ struct TransactionsView: View {
         NavigationView {
             List {
                 ForEach(1...10, id: \.self) { _ in
-                    DashboardTransactionRow()
+                    AuthTransactionRow()
                         .listRowInsets(EdgeInsets())
                         .listRowBackground(Color.clear)
                 }
@@ -763,5 +763,5 @@ struct FAQDetailView: View {
 
 #Preview {
     AuthenticationView()
-        .modelContainer(for: User.self, inMemory: true)
+        .modelContainer(for: MerchantUser.self, inMemory: true)
 } 

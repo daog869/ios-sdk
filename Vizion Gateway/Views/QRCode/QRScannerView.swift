@@ -5,6 +5,11 @@ import SwiftData
 struct QRScannerView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel = QRScannerViewModel()
+    @Binding var isShowing: Bool
+    
+    init(isShowing: Binding<Bool>) {
+        self._isShowing = isShowing
+    }
     
     var body: some View {
         ZStack {
@@ -197,8 +202,6 @@ struct ScannedQRCode: Identifiable {
 }
 
 #Preview {
-    NavigationView {
-        QRScannerView()
-            .modelContainer(for: Transaction.self, inMemory: true)
-    }
+    QRScannerView(isShowing: .constant(true))
+        .modelContainer(for: Transaction.self, inMemory: true)
 } 

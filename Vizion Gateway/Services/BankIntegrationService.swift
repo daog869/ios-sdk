@@ -1,5 +1,7 @@
 import Foundation
 import SwiftData
+import Combine
+import Vizion_Gateway
 
 enum BankError: Error {
     case invalidAmount
@@ -32,6 +34,8 @@ enum BankError: Error {
         }
     }
 }
+
+// Using Transaction directly from Vizion_Gateway
 
 @Observable
 class BankIntegrationService {
@@ -97,9 +101,9 @@ class BankIntegrationService {
         // Simulate random success/failure
         let success = Double.random(in: 0...1) > 0.1
         if success {
-            transaction.status = .completed
+            transaction.status = TransactionStatus.completed
         } else {
-            transaction.status = .failed
+            transaction.status = TransactionStatus.failed
             throw BankError.processingError
         }
     }
@@ -109,7 +113,7 @@ class BankIntegrationService {
             throw BankError.connectionError
         }
         
-        guard transaction.status == .completed else {
+        guard transaction.status == TransactionStatus.completed else {
             throw BankError.processingError
         }
         
@@ -119,20 +123,22 @@ class BankIntegrationService {
         // Create refund transaction
         let refund = Transaction(
             amount: transaction.amount,
-            merchantName: transaction.merchantName,
-            customerID: transaction.customerID,
-            type: .refund,
+            currency: transaction.currency,
+            type: TransactionType.refund,
             paymentMethod: transaction.paymentMethod,
-            description: "Refund for \(transaction.reference ?? "No reference")"
+            transactionDescription: "Refund for \(transaction.reference ?? "No reference")",
+            merchantId: transaction.merchantId,
+            merchantName: transaction.merchantName,
+            reference: UUID().uuidString
         )
         
         // Simulate random success/failure
         let success = Double.random(in: 0...1) > 0.1
         if success {
-            transaction.status = .refunded
-            refund.status = .completed
+            transaction.status = TransactionStatus.refunded
+            refund.status = TransactionStatus.completed
         } else {
-            refund.status = .failed
+            refund.status = TransactionStatus.failed
             throw BankError.processingError
         }
     }
@@ -150,7 +156,7 @@ class BankIntegrationService {
         }
         
         // Calculate total amount
-        let totalAmount = transactions.reduce(0) { $0 + $1.amount }
+        let totalAmount = transactions.reduce(Decimal.zero) { $0 + $1.amount }
         
         // Simulate processing delay
         try await Task.sleep(nanoseconds: 2_000_000_000)

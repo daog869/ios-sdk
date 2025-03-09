@@ -26,9 +26,8 @@ struct RevenueAnalyticsView: View {
         List {
             Section {
                 Picker("Time Range", selection: $timeRange) {
-                    ForEach(TimeRange.allCases) { range in
-                        Text(range.rawValue)
-                            .tag(range)
+                    ForEach(TimeRange.allCases, id: \.self) { range in
+                        Text(range.rawValue).tag(range)
                     }
                 }
                 .pickerStyle(.segmented)

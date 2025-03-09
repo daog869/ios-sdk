@@ -1,0 +1,59 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isMerchant(merchantId) {
+      return isAuthenticated() && 
+        exists(/databases/$(database)/documents/merchants/$(merchantId)) &&
+        request.auth.uid == merchantId;
+    }
+    
+    function hasValidApiKey() {
+      return request.headers.apikey != null &&
+        exists(/databases/$(database)/documents/apiKeys/$(request.headers.apikey)) &&
+        get(/databases/$(database)/documents/apiKeys/$(request.headers.apikey)).data.status == 'active';
+    }
+
+    // Merchant collection rules
+    match /merchants/{merchantId} {
+      allow read: if isMerchant(merchantId) || hasValidApiKey();
+      allow write: if false;  // Only through Firebase Functions
+    }
+    
+    // Transaction rules
+    match /transactions/{transactionId} {
+      allow read: if 
+        isMerchant(resource.data.merchantId) || 
+        (hasValidApiKey() && 
+         get(/databases/$(database)/documents/apiKeys/$(request.headers.apikey)).data.merchantId == resource.data.merchantId);
+      allow write: if false;  // Only through Firebase Functions
+    }
+    
+    // API key rules
+    match /apiKeys/{keyId} {
+      allow read: if 
+        isMerchant(resource.data.merchantId) || 
+        request.auth.token.isAdmin == true;
+      allow write: if false;  // Only through Firebase Functions
+    }
+    
+    // Webhook rules
+    match /webhooks/{webhookId} {
+      allow read: if 
+        isMerchant(resource.data.merchantId) || 
+        (hasValidApiKey() && 
+         get(/databases/$(database)/documents/apiKeys/$(request.headers.apikey)).data.merchantId == resource.data.merchantId);
+      allow write: if false;  // Only through Firebase Functions
+    }
+    
+    // Default deny all other collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

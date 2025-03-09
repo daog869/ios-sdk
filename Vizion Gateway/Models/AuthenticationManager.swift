@@ -58,7 +58,7 @@ class AuthenticationManager {
                 await MainActor.run {
                     self.currentUser = user
                     self.isAuthenticated = true
-                    user.lastLoginAt = Date()
+                    user.lastLogin = Date()
                     authError = nil
                 }
                 try? modelContext.save()
@@ -109,8 +109,8 @@ class AuthenticationManager {
                 firstName: firstName,
                 lastName: lastName,
                 email: email,
-                phoneNumber: phoneNumber,
-                address: address
+                phone: phoneNumber,
+                role: .viewer  // Default role
             )
             
             modelContext.insert(user)

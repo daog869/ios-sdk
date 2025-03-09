@@ -2,6 +2,9 @@ import SwiftUI
 import SwiftData
 import Charts
 
+// Import types directly
+import Vizion_Gateway
+
 struct TransactionMonitoringView: View {
     @Query(sort: \Transaction.timestamp, order: .reverse) private var transactions: [Transaction]
     @State private var searchText = ""
@@ -10,19 +13,19 @@ struct TransactionMonitoringView: View {
     @State private var selectedPaymentMethod: PaymentMethod?
     @State private var dateRange: ClosedRange<Date>?
     @State private var showingTransactionDetail = false
-    @State private var selectedTransaction: Transaction?
+    @State private var selectedTransaction: PaymentTransaction?
     @State private var isAutoRefreshing = true
     @State private var lastRefreshed = Date()
     
-    var filteredTransactions: [Transaction] {
+    var filteredTransactions: [PaymentTransaction] {
         transactions.prefix(1000).filter { transaction in
             var matches = true
             
             if !searchText.isEmpty {
                 matches = matches && (
                     transaction.merchantName.localizedCaseInsensitiveContains(searchText) ||
-                    transaction.customerID.localizedCaseInsensitiveContains(searchText) ||
-                    transaction.reference?.localizedCaseInsensitiveContains(searchText) ?? false
+                    (transaction.customerId != nil && transaction.customerId!.localizedCaseInsensitiveContains(searchText)) ||
+                    transaction.reference.localizedCaseInsensitiveContains(searchText)
                 )
             }
             
@@ -229,14 +232,14 @@ struct FilterView: View {
 }
 
 struct TransactionDetailView: View {
-    let transaction: Transaction
+    let transaction: PaymentTransaction
     @Environment(\.dismiss) private var dismiss
     
     var body: some View {
         NavigationView {
             List {
                 Section("Transaction Details") {
-                    LabeledContent("ID", value: transaction.id.uuidString)
+                    LabeledContent("ID", value: transaction.id)
                     LabeledContent("Amount", value: transaction.amount.formatted(.currency(code: "XCD")))
                     LabeledContent("Status", value: transaction.status.rawValue)
                     LabeledContent("Type", value: transaction.type.rawValue)
@@ -246,10 +249,8 @@ struct TransactionDetailView: View {
                 
                 Section("Merchant Details") {
                     LabeledContent("Name", value: transaction.merchantName)
-                    LabeledContent("Customer ID", value: transaction.customerID)
-                    if let reference = transaction.reference {
-                        LabeledContent("Reference", value: reference)
-                    }
+                    LabeledContent("Customer ID", value: transaction.customerId ?? "None")
+                    LabeledContent("Reference", value: transaction.reference)
                     if let description = transaction.transactionDescription {
                         LabeledContent("Description", value: description)
                     }
@@ -287,8 +288,6 @@ struct TransactionDetailView: View {
 }
 
 #Preview {
-    NavigationView {
-        TransactionMonitoringView()
-    }
-    .modelContainer(for: [Transaction.self], inMemory: true)
+    TransactionMonitoringView()
+        .modelContainer(for: [PaymentTransaction.self], inMemory: true)
 } 

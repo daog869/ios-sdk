@@ -78,6 +78,10 @@ struct StatusBadge: View {
             return .red
         case .refunded:
             return .purple
+        case .disputed:
+            return .yellow
+        case .cancelled:
+            return .gray
         }
     }
     
@@ -101,7 +105,7 @@ struct TransactionRow: View {
                 VStack(alignment: .leading) {
                     Text(transaction.merchantName)
                         .font(.headline)
-                    Text("ID: \(transaction.id.uuidString.prefix(8))")
+                    Text("ID: \(String(describing: transaction.id).prefix(8))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

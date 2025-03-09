@@ -14,7 +14,7 @@ struct FraudDetectionView: View {
                 return true
             }
             return transaction.merchantName.localizedCaseInsensitiveContains(searchText) ||
-                   transaction.id.uuidString.localizedCaseInsensitiveContains(searchText)
+                   transaction.id.localizedCaseInsensitiveContains(searchText)
         }
         
         // Then filter by risk level if selected
@@ -31,57 +31,17 @@ struct FraudDetectionView: View {
         NavigationView {
             VStack(spacing: 0) {
                 // Fraud Overview Cards
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 16) {
-                        MetricCard(
-                            title: "High Risk",
-                            value: "\(countTransactions(with: .high))",
-                            icon: "exclamationmark.triangle.fill",
-                            color: .red
-                        )
-                        
-                        MetricCard(
-                            title: "Medium Risk",
-                            value: "\(countTransactions(with: .medium))",
-                            icon: "exclamationmark.circle.fill",
-                            color: .orange
-                        )
-                        
-                        MetricCard(
-                            title: "Low Risk",
-                            value: "\(countTransactions(with: .low))",
-                            icon: "checkmark.circle.fill",
-                            color: .green
-                        )
-                    }
-                    .padding()
-                }
+                FraudOverviewCardsView(countTransactionsWithRisk: { riskLevel in
+                    countTransactions(with: riskLevel)
+                })
                 
                 // Transaction List
-                List {
-                    ForEach(filteredTransactions) { transaction in
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Text(transaction.merchantName)
-                                    .font(.headline)
-                                Spacer()
-                                RiskBadge(level: calculateRiskLevel(for: transaction))
-                            }
-                            
-                            HStack {
-                                Text(transaction.id.uuidString.prefix(8))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                Spacer()
-                                Text(transaction.amount.formatted(.currency(code: "XCD")))
-                                    .font(.subheadline)
-                                    .fontWeight(.semibold)
-                            }
-                        }
-                        .padding(.vertical, 4)
+                TransactionListView(
+                    transactions: filteredTransactions,
+                    calculateRiskLevel: { transaction in
+                        calculateRiskLevel(for: transaction)
                     }
-                }
-                .listStyle(.plain)
+                )
             }
             .ignoresSafeArea(edges: .horizontal)
             .searchable(text: $searchText, prompt: "Search transactions...")
@@ -195,6 +155,85 @@ struct FraudFilterView: View {
                 }
             }
         }
+    }
+}
+
+// New view to encapsulate the overview cards
+struct FraudOverviewCardsView: View {
+    var countTransactionsWithRisk: (RiskLevel) -> Int
+    
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 16) {
+                MetricCard(
+                    title: "High Risk",
+                    value: "\(countTransactionsWithRisk(.high))",
+                    icon: "exclamationmark.triangle.fill",
+                    color: .red
+                )
+                
+                MetricCard(
+                    title: "Medium Risk",
+                    value: "\(countTransactionsWithRisk(.medium))",
+                    icon: "exclamationmark.circle.fill",
+                    color: .orange
+                )
+                
+                MetricCard(
+                    title: "Low Risk",
+                    value: "\(countTransactionsWithRisk(.low))",
+                    icon: "checkmark.circle.fill",
+                    color: .green
+                )
+            }
+            .padding()
+        }
+    }
+}
+
+// Extracted Transaction List View
+struct TransactionListView: View {
+    let transactions: [Transaction]
+    let calculateRiskLevel: (Transaction) -> RiskLevel
+    
+    var body: some View {
+        List {
+            ForEach(transactions) { transaction in
+                TransactionRowView(
+                    transaction: transaction,
+                    riskLevel: calculateRiskLevel(transaction)
+                )
+            }
+        }
+        .listStyle(.plain)
+    }
+}
+
+// Extracted Transaction Row View
+struct TransactionRowView: View {
+    let transaction: Transaction
+    let riskLevel: RiskLevel
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(transaction.merchantName)
+                    .font(.headline)
+                Spacer()
+                RiskBadge(level: riskLevel)
+            }
+            
+            HStack {
+                Text(String(transaction.id.prefix(8)))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text(transaction.amount.formatted(.currency(code: "XCD")))
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
 
