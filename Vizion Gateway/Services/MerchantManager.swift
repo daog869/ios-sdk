@@ -19,7 +19,7 @@ class MerchantManager {
                          taxId: String? = nil) async throws -> MerchantOnboardingResult {
         // Create merchant data
         var merchantData: [String: Any] = [
-            "merchantName": name,
+            "name": name,
             "businessType": businessType,
             "contactEmail": contactEmail,
             "environment": UserDefaults.standard.string(forKey: "environment") ?? "sandbox"
@@ -60,28 +60,9 @@ class MerchantManager {
         for document in snapshot.documents {
             let data = document.data()
             
-            guard let id = data["id"] as? String,
-                  let name = data["name"] as? String,
-                  let businessType = data["businessType"] as? String,
-                  let contactEmail = data["contactEmail"] as? String,
-                  let status = data["status"] as? String,
-                  let timestampValue = data["createdAt"] as? Timestamp else {
-                continue
+            if let merchant = Merchant.fromDictionary(data, id: document.documentID) {
+                merchants.append(merchant)
             }
-            
-            let merchant = Merchant(
-                id: id,
-                name: name,
-                businessType: businessType,
-                contactEmail: contactEmail,
-                contactPhone: data["contactPhone"] as? String,
-                address: data["address"] as? String,
-                taxId: data["taxId"] as? String,
-                status: status,
-                createdAt: timestampValue.dateValue()
-            )
-            
-            merchants.append(merchant)
         }
         
         return merchants
@@ -95,77 +76,162 @@ class MerchantManager {
         let document = try await db.collection("merchants").document(id).getDocument()
         
         guard let data = document.data(),
-              let name = data["name"] as? String,
-              let businessType = data["businessType"] as? String,
-              let contactEmail = data["contactEmail"] as? String,
-              let status = data["status"] as? String,
-              let timestampValue = data["createdAt"] as? Timestamp else {
-            throw NSError(domain: "MerchantManager", code: 1001, userInfo: [NSLocalizedDescriptionKey: "Invalid merchant data"])
+              let merchant = Merchant.fromDictionary(data, id: id) else {
+            throw NSError(domain: "MerchantManager", code: 404, userInfo: [
+                NSLocalizedDescriptionKey: "Merchant not found"
+            ])
         }
         
-        return Merchant(
-            id: id,
-            name: name,
-            businessType: businessType,
-            contactEmail: contactEmail,
-            contactPhone: data["contactPhone"] as? String,
-            address: data["address"] as? String,
-            taxId: data["taxId"] as? String,
-            status: status,
-            createdAt: timestampValue.dateValue()
-        )
-    }
-    
-    // MARK: - API Key Management
-    
-    func getAPIKeys(forMerchant merchantId: String) async throws -> [APIKey] {
-        // Get current environment
-        let environment = UserDefaults.standard.string(forKey: "environment") ?? "sandbox"
-        
-        // Get Firestore reference
-        let db = Firestore.firestore()
-        
-        // Query API keys for merchant in current environment
-        let snapshot = try await db.collection("apiKeys")
-            .whereField("environment", isEqualTo: environment)
-            .whereField("merchantId", isEqualTo: merchantId)
-            .order(by: "createdAt", descending: true)
+        // Get transactions for this merchant
+        let transactionsSnapshot = try await db.collection("transactions")
+            .whereField("merchantId", isEqualTo: id)
+            .order(by: "timestamp", descending: true)
+            .limit(to: 50)
             .getDocuments()
         
-        // Parse API keys
+        var transactions: [Transaction] = []
+        
+        for transactionDoc in transactionsSnapshot.documents {
+            if let transaction = Transaction.fromDictionary(transactionDoc.data(), id: transactionDoc.documentID) {
+                transactions.append(transaction)
+            }
+        }
+        
+        // Get API keys for this merchant
+        let apiKeysSnapshot = try await db.collection("apiKeys")
+            .whereField("merchantId", isEqualTo: id)
+            .getDocuments()
+        
         var apiKeys: [APIKey] = []
         
-        for document in snapshot.documents {
-            let data = document.data()
+        for keyDoc in apiKeysSnapshot.documents {
+            let keyData = keyDoc.data()
             
-            guard let key = data["key"] as? String,
-                  let name = data["name"] as? String,
-                  let merchantId = data["merchantId"] as? String,
-                  let timestampValue = data["createdAt"] as? Timestamp else {
+            guard let key = keyData["key"] as? String,
+                  let name = keyData["name"] as? String,
+                  let active = keyData["active"] as? Bool,
+                  let timestamp = keyData["createdAt"] as? Timestamp else {
                 continue
             }
             
-            let active = data["active"] as? Bool ?? false
-            
             let apiKey = APIKey(
-                id: document.documentID,
+                id: keyDoc.documentID,
                 key: key,
                 name: name,
-                merchantId: merchantId,
+                merchantId: id,
                 active: active,
-                createdAt: timestampValue.dateValue()
+                createdAt: timestamp.dateValue()
             )
             
             apiKeys.append(apiKey)
         }
         
-        return apiKeys
+        // Update the merchant with related data
+        merchant.transactions = transactions
+        merchant.apiKeys = apiKeys
+        
+        return merchant
     }
     
-    func generateAPIKey(for merchantId: String, name: String) async throws -> String {
-        // Call Firebase function to generate API key
-        let result = try await firebaseManager.generateAPIKey(for: merchantId, name: name)
-        return result
+    func createMerchant(_ merchant: Merchant) async throws -> Merchant {
+        // Get Firestore reference
+        let db = Firestore.firestore()
+        
+        // Get current environment
+        let environment = UserDefaults.standard.string(forKey: "environment") ?? "sandbox"
+        
+        // Prepare merchant data
+        var merchantData = merchant.toDictionary()
+        merchantData["environment"] = environment
+        
+        // Add to Firestore
+        if merchant.id.isEmpty {
+            // Create with auto-generated ID
+            let ref = db.collection("merchants").document()
+            merchant.id = ref.documentID
+            merchantData["id"] = merchant.id
+            
+            try await ref.setData(merchantData)
+        } else {
+            // Create with specified ID
+            let ref = db.collection("merchants").document(merchant.id)
+            try await ref.setData(merchantData)
+        }
+        
+        // Generate API key if needed
+        if let apiKeys = merchant.apiKeys, apiKeys.isEmpty {
+            let apiKey = try await generateAPIKey(for: merchant.id, name: "Default Key")
+            merchant.apiKeys = [apiKey]
+        }
+        
+        return merchant
+    }
+    
+    func updateMerchant(_ merchant: Merchant) async throws {
+        // Get Firestore reference
+        let db = Firestore.firestore()
+        
+        // Update in Firestore
+        let ref = db.collection("merchants").document(merchant.id)
+        try await ref.updateData(merchant.toDictionary())
+    }
+    
+    func suspendMerchant(id: String) async throws {
+        // Get Firestore reference
+        let db = Firestore.firestore()
+        
+        // Update status to suspended
+        let ref = db.collection("merchants").document(id)
+        try await ref.updateData([
+            "status": "Suspended"
+        ])
+    }
+    
+    func activateMerchant(id: String) async throws {
+        // Get Firestore reference
+        let db = Firestore.firestore()
+        
+        // Update status to active
+        let ref = db.collection("merchants").document(id)
+        try await ref.updateData([
+            "status": "Active"
+        ])
+    }
+    
+    // MARK: - API Key Management
+    
+    func generateAPIKey(for merchantId: String, name: String) async throws -> APIKey {
+        // Get Firestore reference
+        let db = Firestore.firestore()
+        
+        // Get current environment
+        let environment = UserDefaults.standard.string(forKey: "environment") ?? "sandbox"
+        
+        // Generate a secure random key
+        let keyString = "vz_\(environment.prefix(1))k_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        
+        // Create API key document
+        let ref = db.collection("apiKeys").document()
+        let keyData: [String: Any] = [
+            "key": keyString,
+            "name": name,
+            "merchantId": merchantId,
+            "active": true,
+            "createdAt": Timestamp(date: Date()),
+            "environment": environment
+        ]
+        
+        try await ref.setData(keyData)
+        
+        // Return the created API key
+        return APIKey(
+            id: ref.documentID,
+            key: keyString,
+            name: name,
+            merchantId: merchantId,
+            active: true,
+            createdAt: Date()
+        )
     }
     
     func revokeAPIKey(id: String) async throws {
@@ -181,31 +247,9 @@ class MerchantManager {
 
 // MARK: - Supporting Types
 
-struct Merchant: Identifiable {
-    let id: String
-    let name: String
-    let businessType: String
-    let contactEmail: String
-    let contactPhone: String?
-    let address: String?
-    let taxId: String?
-    let status: String
-    let createdAt: Date
-}
+// These are already defined in Models/Merchant.swift
+// struct Merchant: Identifiable { ... } 
+// struct APIKey: Identifiable { ... }
 
-struct APIKey: Identifiable {
-    let id: String
-    let key: String
-    let name: String
-    let merchantId: String
-    let active: Bool
-    let createdAt: Date
-}
-
-struct MerchantOnboardingResult: Codable {
-    let merchantId: String
-    let merchantName: String
-    let status: String
-    let message: String
-    let apiKey: String
-} 
+// Use typealias to clarify the usage if needed
+typealias MerchantOnboardingResult = [String: String] 

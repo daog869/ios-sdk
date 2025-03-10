@@ -1,185 +1,75 @@
-# Vizion Gateway Firebase Functions
+# Vizion Gateway Functions
 
-This directory contains the Firebase Cloud Functions for the Vizion Gateway payment processing platform.
+This directory contains Firebase Cloud Functions for the Vizion Gateway payment processing platform.
 
-## Overview
-
-These functions provide the backend API for the Vizion Gateway payment processing platform, including:
-
-- Payment processing
-- Transaction reporting
-- Webhook management
-- Merchant onboarding
-
-## Setup
-
-### Prerequisites
-
-- Node.js 18 (required by Firebase Functions)
-- Firebase CLI (`npm install -g firebase-tools`)
-- Service account key file in the project root (`vizion-gateway-firebase-adminsdk-fbsvc-cfe0acf447.json`)
-
-### Installation
+## Setup Instructions
 
 1. Install dependencies:
    ```bash
-   cd functions
    npm install
    ```
 
-### Local Development with Emulators
+2. Setup Firebase credential file:
+   - Download your Firebase service account key from Firebase Console > Project Settings > Service Accounts
+   - Save it as `service-account-key.json` in this directory
 
-1. Start the Firebase emulators:
+## Data Seeding for Testing
+
+To populate your Firebase database with test data for UI development:
+
+1. Make sure you have the `service-account-key.json` file in this directory
+2. Run the seeding script:
+   ```bash
+   npm run seed
+   ```
+
+This will create:
+- 3 test merchants
+- 5 test users (admin, merchants, customers)
+- 50 sample transactions
+- API keys and webhooks
+
+### Test Accounts
+
+After running the seed script, you can log in with these credentials:
+
+| Role      | Email                     | Password     |
+|-----------|---------------------------|--------------|
+| Admin     | admin@viziongateway.com   | Password123! |
+| Merchant  | merchant1@coffeeshop.com  | Password123! |
+| Customer  | jane.smith@example.com    | Password123! |
+
+## Firebase Emulators
+
+To run Firebase emulators locally:
+
+1. Start the emulators:
    ```bash
    firebase emulators:start
    ```
 
-2. Access the emulator dashboard at http://localhost:4001
+2. Access the emulator UI at:
+   - Emulator Hub: http://localhost:4000
+   - Functions: http://localhost:5001
+   - Firestore: http://localhost:8080
+   - Auth: http://localhost:9099
 
-### iOS Integration
+## Development Workflow
 
-To use these functions from your iOS app:
-
-1. Ensure you have the required Firebase iOS SDK dependencies in your Xcode project.
-2. Use the `FirebaseFunctionService.swift` class to interact with the functions.
-3. For local development, set the environment variable:
-   ```swift
-   // In your app delegate or test code
-   ProcessInfo.processInfo.setValue("localhost", forKey: "FUNCTIONS_EMULATOR_HOST")
+1. Start the emulators with:
+   ```bash
+   npm run serve
    ```
 
-## Available Functions
+2. Run the seed script to populate test data:
+   ```bash
+   npm run seed
+   ```
 
-### processPayment
-
-Process a payment transaction with detailed information.
-
-```swift
-FirebaseFunctionService.shared.processPayment(
-    amount: 100.0,
-    currency: "USD",
-    merchantId: "mer_123456789",
-    apiKey: "vz_abcdef12345",
-    completion: { result in
-        switch result {
-        case .success(let response):
-            print("Transaction successful: \(response.transactionId)")
-        case .failure(let error):
-            print("Error: \(error.localizedDescription)")
-        }
-    }
-)
-```
-
-### generateReport
-
-Generate a transaction report for a specified date range.
-
-```swift
-FirebaseFunctionService.shared.generateReport(
-    merchantId: "mer_123456789",
-    apiKey: "vz_abcdef12345",
-    reportType: "transactions",
-    startDate: Date().addingTimeInterval(-7*24*60*60), // 7 days ago
-    endDate: Date(),
-    completion: { result in
-        switch result {
-        case .success(let response):
-            print("Report available at: \(response.downloadUrl)")
-        case .failure(let error):
-            print("Error: \(error.localizedDescription)")
-        }
-    }
-)
-```
-
-### getTransactionStatistics
-
-Get statistics about transactions for a specific time period.
-
-```swift
-FirebaseFunctionService.shared.getTransactionStatistics(
-    merchantId: "mer_123456789",
-    apiKey: "vz_abcdef12345",
-    timeframe: "last7days",
-    completion: { result in
-        switch result {
-        case .success(let response):
-            print("Total volume: \(response.totalVolume)")
-            print("Transaction count: \(response.transactionCount)")
-        case .failure(let error):
-            print("Error: \(error.localizedDescription)")
-        }
-    }
-)
-```
-
-### triggerWebhook
-
-Test webhook delivery to a specified URL.
-
-```swift
-FirebaseFunctionService.shared.triggerWebhook(
-    merchantId: "mer_123456789",
-    apiKey: "vz_abcdef12345",
-    webhookUrl: "https://example.com/webhook",
-    eventType: "payment.completed",
-    completion: { result in
-        switch result {
-        case .success(let response):
-            print("Webhook triggered: \(response.webhookId)")
-        case .failure(let error):
-            print("Error: \(error.localizedDescription)")
-        }
-    }
-)
-```
-
-### onboardMerchant
-
-Create a new merchant account with initial configuration.
-
-```swift
-FirebaseFunctionService.shared.onboardMerchant(
-    businessName: "Example Business",
-    email: "contact@example.com",
-    contactName: "John Doe",
-    address: "123 Main St, Anytown, USA",
-    completion: { result in
-        switch result {
-        case .success(let response):
-            print("Merchant created: \(response.merchantId)")
-            print("API Key: \(response.apiKey.key)")
-        case .failure(let error):
-            print("Error: \(error.localizedDescription)")
-        }
-    }
-)
-```
-
-## Deployment
-
-To deploy the functions to Firebase:
-
-```bash
-firebase deploy --only functions
-```
-
-To deploy a specific function:
-
-```bash
-firebase deploy --only functions:processPayment
-```
-
-## Environment Variables
-
-For production, you can set these environment variables:
-
-- `FIREBASE_SERVICE_ACCOUNT`: JSON service account credentials (as string)
-- `STORAGE_BUCKET`: Firebase Storage bucket name
+3. Launch the Vizion Gateway app pointing to the local emulators
 
 ## Troubleshooting
 
-- **Error: "Could not load the default credentials"** - Make sure the service account key file is in the correct location.
-- **Error: "Function failed on loading user code"** - Check the Firebase logs for syntax errors.
-- **Error: "Port already in use"** - Stop any running emulator instances. 
+- If you encounter auth issues, make sure the user accounts exist in Firebase Auth
+- If you're using the emulators, ensure your app is configured to use them
+- Check Firebase logs with `npm run logs` if functions aren't working as expected 

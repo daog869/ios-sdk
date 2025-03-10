@@ -1,9 +1,12 @@
 import SwiftUI
 import LocalAuthentication
 import SwiftData
+import Combine
 
+// MARK: - Deprecated
+@available(*, deprecated, message: "Use AuthorizationManager instead")
 @Observable
-class AuthenticationManager {
+class AuthenticationManager: ObservableObject {
     static let shared = AuthenticationManager()
     
     var currentUser: User?
@@ -15,6 +18,18 @@ class AuthenticationManager {
     
     init() {
         checkBiometricAvailability()
+    }
+    
+    func setCurrentUser(_ user: User) {
+        self.currentUser = user
+        self.isAuthenticated = true
+    }
+    
+    func saveCredentials(email: String, password: String) {
+        // In a real app, you would use Keychain to securely store credentials
+        UserDefaults.standard.set(email, forKey: "savedEmail")
+        // Never store password in UserDefaults in a real app - this is for demo only
+        print("Credentials saved for \(email)")
     }
     
     private func checkBiometricAvailability() {
@@ -84,6 +99,7 @@ class AuthenticationManager {
         password: String,
         phoneNumber: String,
         address: String,
+        role: UserRole,
         modelContext: ModelContext
     ) async -> Bool {
         // Simulate API call
@@ -110,8 +126,14 @@ class AuthenticationManager {
                 lastName: lastName,
                 email: email,
                 phone: phoneNumber,
-                role: .viewer  // Default role
+                role: role,
+                isActive: true,
+                createdAt: Date(),
+                address: address
             )
+            
+            // In a real app, you'd add additional security validation for admin roles
+            // and potentially require approval from existing admins
             
             modelContext.insert(user)
             try modelContext.save()
@@ -135,6 +157,22 @@ class AuthenticationManager {
         currentUser = nil
         isAuthenticated = false
         authError = nil
+    }
+    
+    func signOut() {
+        // Clear credentials
+        UserDefaults.standard.removeObject(forKey: "savedEmail")
+        
+        // Clear any authentication tokens
+        // In a real app, you would also invalidate the token on the server
+        
+        // Reset local state
+        currentUser = nil
+        isAuthenticated = false
+        authError = nil
+        
+        // Post notification for app-wide state reset
+        NotificationCenter.default.post(name: NSNotification.Name("UserDidSignOut"), object: nil)
     }
     
     func requestTwoFactorCode() async -> String? {

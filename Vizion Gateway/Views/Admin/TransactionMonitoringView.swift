@@ -2,8 +2,6 @@ import SwiftUI
 import SwiftData
 import Charts
 
-// Import types directly
-import Vizion_Gateway
 
 struct TransactionMonitoringView: View {
     @Query(sort: \Transaction.timestamp, order: .reverse) private var transactions: [Transaction]
@@ -144,7 +142,7 @@ struct TransactionMonitoringView: View {
             }
             .sheet(isPresented: $showingTransactionDetail) {
                 if let transaction = selectedTransaction {
-                    TransactionDetailView(transaction: transaction)
+                    AdminTransactionDetailView(transaction: transaction)
                         .presentationDragIndicator(.visible)
                 }
             }
@@ -231,7 +229,7 @@ struct FilterView: View {
     }
 }
 
-struct TransactionDetailView: View {
+struct AdminTransactionDetailView: View {
     let transaction: PaymentTransaction
     @Environment(\.dismiss) private var dismiss
     

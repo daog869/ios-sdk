@@ -1,7 +1,6 @@
 import Foundation
 import SwiftData
 import Combine
-import Vizion_Gateway
 
 enum BankError: Error {
     case invalidAmount

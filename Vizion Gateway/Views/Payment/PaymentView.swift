@@ -1,6 +1,5 @@
 import SwiftUI
 import SwiftData
-import Vizion_Gateway
 import Charts
 
 // Using types directly from the main module

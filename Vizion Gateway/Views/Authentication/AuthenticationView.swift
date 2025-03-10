@@ -196,6 +196,7 @@ struct RegistrationView: View {
                 password: password,
                 phoneNumber: phoneNumber,
                 address: address,
+                role: .customer,
                 modelContext: modelContext
             ) {
                 dismiss()
@@ -270,43 +271,51 @@ struct MainAppView: View {
 struct AuthDashboardPreview: View {
     var body: some View {
         NavigationView {
-            ScrollView {
-                VStack(spacing: 20) {
-                    // Quick Actions
-                    HStack(spacing: 16) {
-                        QuickActionButton(title: "Send Money", icon: "arrow.up.circle.fill")
-                        QuickActionButton(title: "Request", icon: "arrow.down.circle.fill")
-                        QuickActionButton(title: "QR Pay", icon: "qrcode")
-                    }
-                    .padding()
+            VStack(spacing: 30) {
+                // Preview indicator
+                VStack(spacing: 10) {
+                    Image(systemName: "eye")
+                        .font(.system(size: 64))
+                        .foregroundColor(.blue)
                     
-                    // Balance Card
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Available Balance")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                        
-                        Text("$2,458.50 XCD")
-                            .font(.system(size: 34, weight: .bold))
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding()
-                    .background(.blue.opacity(0.1))
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                    .padding(.horizontal)
+                    Text("Preview Mode")
+                        .font(.title2)
+                        .fontWeight(.bold)
                     
-                    // Recent Transactions
-                    VStack(alignment: .leading, spacing: 16) {
-                        Text("Recent Transactions")
-                            .font(.headline)
-                            .padding(.horizontal)
-                        
-                        ForEach(1...5, id: \.self) { _ in
-                            AuthTransactionRow()
-                        }
-                    }
+                    Text("Sign in to see your real transaction data")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
                 }
+                .padding(.top, 50)
+                
+                // Quick Actions
+                VStack(spacing: 8) {
+                    Text("Quick Actions")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal)
+                    
+                    HStack(spacing: 16) {
+                        Spacer()
+                        QuickActionButton(title: "Send", icon: "arrow.up.circle.fill")
+                        Spacer()
+                        QuickActionButton(title: "Request", icon: "arrow.down.circle.fill")
+                        Spacer()
+                        QuickActionButton(title: "QR", icon: "qrcode")
+                        Spacer()
+                    }
+                    .padding()
+                }
+                .background(Color.gray.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .padding(.horizontal)
+                
+                Spacer()
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(UIColor.systemGroupedBackground))
             .navigationTitle("Dashboard")
             .navigationBarTitleDisplayMode(.inline)
         }
@@ -324,7 +333,7 @@ struct QuickActionButton: View {
             Image(systemName: icon)
                 .font(.title)
                 .foregroundStyle(.blue)
-                .frame(width: 60, height: 60)
+                .frame(width: 50, height: 50)
                 .background(.blue.opacity(0.1))
                 .clipShape(Circle())
             
@@ -335,26 +344,97 @@ struct QuickActionButton: View {
     }
 }
 
-struct AuthTransactionRow: View {
+struct TransactionsView: View {
+    @State private var transactions: [Transaction] = []
+    @State private var isLoading = true
+    @State private var error: Error?
+    
+    var body: some View {
+        NavigationView {
+            ZStack {
+                if isLoading {
+                    ProgressView()
+                } else if transactions.isEmpty {
+                    VStack {
+                        Image(systemName: "arrow.left.arrow.right.circle")
+                            .font(.system(size: 64))
+                            .foregroundColor(.secondary)
+                            .padding()
+                        
+                        Text("No transactions yet")
+                            .font(.headline)
+                        
+                        Text("Your completed transactions will appear here")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding()
+                    }
+                    .padding()
+                } else {
+                    List {
+                        ForEach(transactions) { transaction in
+                            NavigationLink(destination: AuthTransactionDetailView(transaction: transaction)) {
+                                TransactionListRow(transaction: transaction)
+                            }
+                            .listRowInsets(EdgeInsets())
+                            .listRowBackground(Color.clear)
+                        }
+                    }
+                    .listStyle(.plain)
+                }
+            }
+            .navigationTitle("Transactions")
+            .navigationBarTitleDisplayMode(.inline)
+            .task {
+                await loadTransactions()
+            }
+            .refreshable {
+                await loadTransactions()
+            }
+        }
+        .navigationViewStyle(.stack)
+        .ignoresSafeArea()
+    }
+    
+    private func loadTransactions() async {
+        isLoading = true
+        
+        do {
+            transactions = try await FirebaseManager.shared.getTransactions(limit: 20)
+        } catch {
+            self.error = error
+            print("Error loading transactions: \(error.localizedDescription)")
+        }
+        
+        isLoading = false
+    }
+}
+
+struct TransactionListRow: View {
+    let transaction: Transaction
+    
     var body: some View {
         HStack {
-            Image(systemName: "arrow.right.circle.fill")
+            // Transaction type icon
+            Image(systemName: transaction.type == .payment ? "arrow.right.circle.fill" : "arrow.left.circle.fill")
                 .font(.title2)
-                .foregroundStyle(.blue)
+                .foregroundStyle(transaction.type == .payment ? .blue : .green)
             
             VStack(alignment: .leading) {
-                Text("Payment to Merchant")
+                Text(transaction.transactionDescription ?? transaction.type.rawValue)
                     .font(.subheadline)
                     .fontWeight(.medium)
                 
-                Text("Today, 2:30 PM")
+                Text(formatDate(transaction.timestamp))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             
             Spacer()
             
-            Text("-$125.00")
+            // Amount
+            Text(formatAmount(transaction.amount, transaction.currency))
                 .font(.subheadline)
                 .fontWeight(.semibold)
         }
@@ -363,24 +443,128 @@ struct AuthTransactionRow: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .padding(.horizontal)
     }
+    
+    private func formatDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+    
+    private func formatAmount(_ amount: Decimal, _ currency: String) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = currency
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        
+        let sign = transaction.type == .payment ? "-" : "+"
+        return sign + (formatter.string(from: NSDecimalNumber(decimal: amount)) ?? "$0.00")
+    }
 }
 
-struct TransactionsView: View {
+// Rename TransactionDetailView to avoid redeclaration
+struct AuthTransactionDetailView: View {
+    let transaction: Transaction
+    
     var body: some View {
-        NavigationView {
-            List {
-                ForEach(1...10, id: \.self) { _ in
-                    AuthTransactionRow()
-                        .listRowInsets(EdgeInsets())
-                        .listRowBackground(Color.clear)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                // Transaction Header
+                VStack(alignment: .center, spacing: 8) {
+                    Text(formatAmount(transaction.amount, transaction.currency))
+                        .font(.system(size: 34, weight: .bold))
+                        .padding(.top)
+                    
+                    Text(transaction.status.rawValue)
+                        .font(.headline)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(statusColor(transaction.status).opacity(0.1))
+                        .foregroundColor(statusColor(transaction.status))
+                        .clipShape(Capsule())
+                    
+                    Text(formatDetailDate(transaction.timestamp))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
+                .frame(maxWidth: .infinity)
+                
+                // Transaction Details - Fix the GroupBox label argument
+                GroupBox {
+                    VStack(spacing: 15) {
+                        TransactionDetailRow(label: "Transaction ID", value: transaction.id)
+                        TransactionDetailRow(label: "Type", value: transaction.type.rawValue)
+                        TransactionDetailRow(label: "Payment Method", value: transaction.paymentMethod.rawValue)
+                        if let description = transaction.transactionDescription {
+                            TransactionDetailRow(label: "Description", value: description)
+                        }
+                        TransactionDetailRow(label: "Merchant", value: transaction.merchantName)
+                    }
+                    .padding(.vertical, 8)
+                } label: {
+                    Label("Transaction Details", systemImage: "info.circle")
+                        .font(.headline)
+                }
+                
+                Spacer()
             }
-            .listStyle(.plain)
-            .navigationTitle("Transactions")
-            .navigationBarTitleDisplayMode(.inline)
+            .padding()
         }
-        .navigationViewStyle(.stack)
-        .ignoresSafeArea()
+        .navigationTitle("Transaction Details")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+    
+    private func formatAmount(_ amount: Decimal, _ currency: String) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = currency
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        
+        let sign = transaction.type == .payment ? "-" : "+"
+        return sign + (formatter.string(from: NSDecimalNumber(decimal: amount)) ?? "$0.00")
+    }
+    
+    private func formatDetailDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .long
+        formatter.timeStyle = .medium
+        return formatter.string(from: date)
+    }
+    
+    private func statusColor(_ status: TransactionStatus) -> Color {
+        switch status {
+        case .completed:
+            return .green
+        case .pending, .processing:
+            return .orange
+        case .failed, .disputed, .cancelled:
+            return .red
+        case .refunded:
+            return .blue
+        }
+    }
+}
+
+// Rename DetailRow to avoid redeclaration
+struct TransactionDetailRow: View {
+    let label: String
+    let value: String
+    
+    var body: some View {
+        HStack(alignment: .top) {
+            Text(label)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .frame(width: 120, alignment: .leading)
+            
+            Text(value)
+                .font(.subheadline)
+                .multilineTextAlignment(.leading)
+            
+            Spacer()
+        }
     }
 }
 
@@ -574,7 +758,7 @@ struct SecuritySettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingChangePassword) {
             NavigationView {
-                ChangePasswordView()
+                SecurityChangePasswordView()
             }
         }
     }
@@ -643,7 +827,7 @@ struct LoginHistoryView: View {
     }
 }
 
-struct ChangePasswordView: View {
+struct SecurityChangePasswordView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var currentPassword = ""
     @State private var newPassword = ""

@@ -63,7 +63,7 @@ struct MetricCard: View {
     }
 }
 
-struct StatusBadge: View {
+struct PaymentStatusBadge: View {
     let status: TransactionStatus
     
     var color: Color {
@@ -96,7 +96,7 @@ struct StatusBadge: View {
     }
 }
 
-struct TransactionRow: View {
+struct PaymentTransactionRow: View {
     let transaction: Transaction
     
     var body: some View {
@@ -117,7 +117,7 @@ struct TransactionRow: View {
             }
             
             HStack {
-                StatusBadge(status: transaction.status)
+                PaymentStatusBadge(status: transaction.status)
                 
                 Text(transaction.paymentMethod.rawValue)
                     .font(.caption)

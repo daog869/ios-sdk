@@ -12,6 +12,20 @@ enum UserRole: String, Codable, CaseIterable {
     case viewer = "Viewer"
 }
 
+// Define Caribbean islands
+enum Island: String, Codable, CaseIterable, Identifiable {
+    case stKitts = "St. Kitts"
+    case nevis = "Nevis"
+    case antigua = "Antigua"
+    case barbuda = "Barbuda"
+    case anguilla = "Anguilla"
+    case grenada = "Grenada"
+    case dominica = "Dominica"
+    case stLucia = "St. Lucia"
+    
+    var id: String { rawValue }
+}
+
 @Model
 final class User {
     var id: String
@@ -23,6 +37,11 @@ final class User {
     var isActive: Bool
     var createdAt: Date
     var lastLogin: Date?
+    var island: Island?  // Added island field
+    var address: String?  // Added address field
+    var businessName: String?  // For merchant users
+    var isVerified: Bool = false  // Track KYC/AML verification status
+    var verificationDate: Date?   // When the user was verified
     
     // Firebase identifiers
     var firebaseId: String?
@@ -43,7 +62,12 @@ final class User {
         isActive: Bool = true,
         createdAt: Date = Date(),
         lastLogin: Date? = nil,
-        firebaseId: String? = nil
+        island: Island? = nil,
+        address: String? = nil,
+        businessName: String? = nil,
+        firebaseId: String? = nil,
+        isVerified: Bool = false,
+        verificationDate: Date? = nil
     ) {
         self.id = id
         self.firstName = firstName
@@ -54,63 +78,16 @@ final class User {
         self.isActive = isActive
         self.createdAt = createdAt
         self.lastLogin = lastLogin
+        self.island = island
+        self.address = address
+        self.businessName = businessName
         self.firebaseId = firebaseId
+        self.isVerified = isVerified
+        self.verificationDate = verificationDate
     }
     
-    // Firebase Dictionary Conversion
-    func toDictionary() -> [String: Any] {
-        var dict: [String: Any] = [
-            "id": id,
-            "firstName": firstName,
-            "lastName": lastName,
-            "email": email,
-            "role": role.rawValue,
-            "isActive": isActive,
-            "createdAt": createdAt.timeIntervalSince1970
-        ]
-        
-        if let phone = phone {
-            dict["phone"] = phone
-        }
-        
-        if let lastLogin = lastLogin {
-            dict["lastLogin"] = lastLogin.timeIntervalSince1970
-        }
-        
-        return dict
-    }
-    
-    // Initialize from Firebase document
-    static func fromDictionary(_ dict: [String: Any], id: String) -> User? {
-        guard 
-            let firstName = dict["firstName"] as? String,
-            let lastName = dict["lastName"] as? String,
-            let email = dict["email"] as? String,
-            let roleString = dict["role"] as? String,
-            let role = UserRole(rawValue: roleString),
-            let isActive = dict["isActive"] as? Bool,
-            let createdAtTimestamp = dict["createdAt"] as? TimeInterval
-        else {
-            return nil
-        }
-        
-        let phone = dict["phone"] as? String
-        let lastLoginTimestamp = dict["lastLogin"] as? TimeInterval
-        let lastLogin = lastLoginTimestamp.map { Date(timeIntervalSince1970: $0) }
-        
-        return User(
-            id: id,
-            firstName: firstName,
-            lastName: lastName,
-            email: email,
-            phone: phone,
-            role: role,
-            isActive: isActive,
-            createdAt: Date(timeIntervalSince1970: createdAtTimestamp),
-            lastLogin: lastLogin,
-            firebaseId: id
-        )
-    }
+    // Note: Firebase serialization methods (toDictionary and fromDictionary) 
+    // are implemented in FirebaseSerializable.swift through protocol extensions
 }
 
 // The UserRole enum is defined in the UserManagementView.swift file 

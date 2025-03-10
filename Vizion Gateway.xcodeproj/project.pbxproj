@@ -15,6 +15,7 @@
 		6E8AAE6A2D7E10B8002C2A1B /* FirebaseFunctions in Frameworks */ = {isa = PBXBuildFile; productRef = 6E8AAE692D7E10B8002C2A1B /* FirebaseFunctions */; };
 		6E8AAE6C2D7E10B8002C2A1B /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = 6E8AAE6B2D7E10B8002C2A1B /* FirebaseMessaging */; };
 		6E8AAE6E2D7E10B8002C2A1B /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = 6E8AAE6D2D7E10B8002C2A1B /* FirebaseStorage */; };
+		6E8AAEA62D7E5597002C2A1B /* AVKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6E8AAEA52D7E5597002C2A1B /* AVKit.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -38,11 +39,25 @@
 		6E5EB41E2D3536B400A5DEA9 /* Vizion Gateway.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Vizion Gateway.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		6E5EB4302D3536B600A5DEA9 /* Vizion GatewayTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Vizion GatewayTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		6E5EB43A2D3536B600A5DEA9 /* Vizion GatewayUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Vizion GatewayUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		6E8AAEA52D7E5597002C2A1B /* AVKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVKit.framework; path = System/Library/Frameworks/AVKit.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		6E8AAF6F2D7E849B002C2A1B /* Exceptions for "Vizion Gateway" folder in "Vizion Gateway" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 6E5EB41D2D3536B400A5DEA9 /* Vizion Gateway */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		6E5EB4202D3536B400A5DEA9 /* Vizion Gateway */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				6E8AAF6F2D7E849B002C2A1B /* Exceptions for "Vizion Gateway" folder in "Vizion Gateway" target */,
+			);
 			path = "Vizion Gateway";
 			sourceTree = "<group>";
 		};
@@ -71,6 +86,7 @@
 				6E8AAE6E2D7E10B8002C2A1B /* FirebaseStorage in Frameworks */,
 				6E8AAE682D7E10B8002C2A1B /* FirebaseFirestore in Frameworks */,
 				6E8AAE622D7E10B8002C2A1B /* FirebaseAuth in Frameworks */,
+				6E8AAEA62D7E5597002C2A1B /* AVKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -115,6 +131,7 @@
 		6E8AAE602D7E10B8002C2A1B /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				6E8AAEA52D7E5597002C2A1B /* AVKit.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";

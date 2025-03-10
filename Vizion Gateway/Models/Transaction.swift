@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import FirebaseFirestore
 
 enum TransactionStatus: String, Codable, CaseIterable {
     case pending = "Pending"
@@ -115,96 +116,35 @@ final class Transaction {
         self.firebaseId = firebaseId
     }
     
-    // Firebase Dictionary Conversion
-    func toDictionary() -> [String: Any] {
-        var dict: [String: Any] = [
-            "id": id,
-            "amount": NSDecimalNumber(decimal: amount).doubleValue,
-            "currency": currency,
-            "status": status.rawValue,
-            "type": type.rawValue,
-            "paymentMethod": paymentMethod.rawValue,
-            "timestamp": timestamp.timeIntervalSince1970,
-            "merchantId": merchantId,
-            "merchantName": merchantName,
-            "reference": reference,
-            "fee": NSDecimalNumber(decimal: fee).doubleValue,
-            "netAmount": NSDecimalNumber(decimal: netAmount).doubleValue,
-            "environment": environment
-        ]
-        
-        // Optional fields
-        if let transactionDescription = transactionDescription { dict["transactionDescription"] = transactionDescription }
-        if let metadata = metadata { dict["metadata"] = metadata }
-        if let customerId = customerId { dict["customerId"] = customerId }
-        if let customerName = customerName { dict["customerName"] = customerName }
-        if let externalReference = externalReference { dict["externalReference"] = externalReference }
-        if let processorResponse = processorResponse { dict["processorResponse"] = processorResponse }
-        if let errorMessage = errorMessage { dict["errorMessage"] = errorMessage }
-        if let authorizationCode = authorizationCode { dict["authorizationCode"] = authorizationCode }
-        
-        return dict
-    }
-    
-    // Initialize from Firebase document
-    static func fromDictionary(_ dict: [String: Any], id: String) -> Transaction? {
-        guard
-            let amountValue = dict["amount"] as? Double,
-            let currency = dict["currency"] as? String,
-            let statusString = dict["status"] as? String,
-            let status = TransactionStatus(rawValue: statusString),
-            let typeString = dict["type"] as? String,
-            let type = TransactionType(rawValue: typeString),
-            let paymentMethodString = dict["paymentMethod"] as? String,
-            let paymentMethod = PaymentMethod(rawValue: paymentMethodString),
-            let timestampValue = dict["timestamp"] as? TimeInterval,
-            let merchantId = dict["merchantId"] as? String,
-            let merchantName = dict["merchantName"] as? String,
-            let reference = dict["reference"] as? String,
-            let feeValue = dict["fee"] as? Double,
-            let netAmountValue = dict["netAmount"] as? Double
-        else {
-            return nil
-        }
-        
-        let amount = Decimal(amountValue)
-        let fee = Decimal(feeValue)
-        let netAmount = Decimal(netAmountValue)
-        let timestamp = Date(timeIntervalSince1970: timestampValue)
-        
-        let environment = dict["environment"] as? String ?? "sandbox"
-        let transactionDescription = dict["transactionDescription"] as? String
-        let metadata = dict["metadata"] as? String
-        let customerId = dict["customerId"] as? String
-        let customerName = dict["customerName"] as? String
-        let externalReference = dict["externalReference"] as? String
-        let processorResponse = dict["processorResponse"] as? String
-        let errorMessage = dict["errorMessage"] as? String
-        let authorizationCode = dict["authorizationCode"] as? String
-        
-        return Transaction(
-            id: id,
-            amount: amount,
-            currency: currency,
-            status: status,
-            type: type,
-            paymentMethod: paymentMethod,
-            timestamp: timestamp,
-            transactionDescription: transactionDescription,
-            metadata: metadata,
+    // The toDictionary and fromDictionary methods are already implemented in FirebaseSerializable.swift
+    // via the extension Transaction: FirebaseSerializable
+
+    // MARK: - Preview Helpers
+    static func previewTransaction(
+        merchantId: String = "MERCH123",
+        merchantName: String = "Test Merchant",
+        customerId: String? = nil,
+        customerName: String? = nil,
+        reference: String = "TXN-123456",
+        fee: Decimal = 1.00,
+        authorizationCode: String? = nil
+    ) -> Transaction {
+        Transaction(
+            id: "TX\(Int.random(in: 100000...999999))",
+            amount: 99.99,
+            currency: "XCD",
+            status: .completed,
+            type: .payment,
+            paymentMethod: .creditCard,
+            timestamp: Date(),
+            transactionDescription: "Test transaction",
             merchantId: merchantId,
             merchantName: merchantName,
             customerId: customerId,
             customerName: customerName,
             reference: reference,
-            externalReference: externalReference,
             fee: fee,
-            netAmount: netAmount,
-            processorResponse: processorResponse,
-            errorMessage: errorMessage,
-            authorizationCode: authorizationCode,
-            environment: environment,
-            firebaseId: id
+            authorizationCode: authorizationCode
         )
     }
 } 

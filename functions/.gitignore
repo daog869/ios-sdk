@@ -1,2 +1,43 @@
+# Compiled JavaScript files
+lib/**
+**/*.js.map
+
+# TypeScript v1 declaration files
+typings/
+
+# Node.js dependency directory
 node_modules/
-*.local
+
+# Build output
+dist/
+build/
+
+# Coverage directory
+coverage/
+
+# Environment variables and secrets
+.env
+.runtimeconfig.json
+*.log
+
+# Service account credentials
+service-account-key.json
+*-service-account-key.json
+*-firebase-adminsdk-*.json
+
+# IDE files
+.vscode/
+.idea/
+*.iml
+*.swp
+.DS_Store
+
+# Local Netlify folder
+.netlify
+
+# Local Firebase emulator data
+*-debug.log
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+emulator-data/

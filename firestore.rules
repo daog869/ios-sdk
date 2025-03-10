@@ -2,58 +2,100 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Helper functions
-    function isAuthenticated() {
+    // Common functions
+    function isSignedIn() {
       return request.auth != null;
     }
     
-    function isMerchant(merchantId) {
-      return isAuthenticated() && 
-        exists(/databases/$(database)/documents/merchants/$(merchantId)) &&
-        request.auth.uid == merchantId;
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
     }
     
-    function hasValidApiKey() {
-      return request.headers.apikey != null &&
-        exists(/databases/$(database)/documents/apiKeys/$(request.headers.apikey)) &&
-        get(/databases/$(database)/documents/apiKeys/$(request.headers.apikey)).data.status == 'active';
+    function userExists() {
+      return isSignedIn() && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid));
     }
-
-    // Merchant collection rules
+    
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    
+    function getUserRole() {
+      return userExists() ? getUserData().role : null;
+    }
+    
+    function hasAdminRole() {
+      return isSignedIn() && userExists() && getUserRole() == 'Admin';
+    }
+    
+    function hasBankRole() {
+      return isSignedIn() && userExists() && getUserRole() == 'Bank';
+    }
+    
+    function hasMerchantRole() {
+      return isSignedIn() && userExists() && getUserRole() == 'Merchant';
+    }
+    
+    function hasManagerRole() {
+      return isSignedIn() && userExists() && 
+             (getUserRole() == 'Manager' || getUserRole() == 'Admin');
+    }
+    
+    // Users collection
+    match /users/{userId} {
+      // Users can read and write their own documents
+      // Admins can read and write all user documents
+      // Managers can read all user documents
+      allow get: if isOwner(userId) || hasAdminRole() || hasManagerRole();
+      allow list: if hasAdminRole() || hasManagerRole();
+      allow create: if isSignedIn() || hasAdminRole();
+      allow update: if isOwner(userId) || hasAdminRole();
+      allow delete: if hasAdminRole();
+    }
+    
+    // Merchants collection
     match /merchants/{merchantId} {
-      allow read: if isMerchant(merchantId) || hasValidApiKey();
-      allow write: if false;  // Only through Firebase Functions
+      // Admin can CRUD
+      // Bank and Manager can read
+      // Merchant can read and update their own documents
+      allow read: if isSignedIn();
+      allow create: if hasAdminRole() || hasManagerRole();
+      allow update: if hasAdminRole() || hasManagerRole() || 
+                    (hasMerchantRole() && resource.data.ownerId == request.auth.uid);
+      allow delete: if hasAdminRole();
     }
     
-    // Transaction rules
+    // Transactions collection
     match /transactions/{transactionId} {
-      allow read: if 
-        isMerchant(resource.data.merchantId) || 
-        (hasValidApiKey() && 
-         get(/databases/$(database)/documents/apiKeys/$(request.headers.apikey)).data.merchantId == resource.data.merchantId);
-      allow write: if false;  // Only through Firebase Functions
+      // Users can read their own transactions
+      // Merchants can read and update transactions linked to them
+      // Admins can read all
+      // Bank can read all and update dispute status
+      allow read: if isSignedIn() && 
+                  (resource.data.customerId == request.auth.uid || 
+                   resource.data.merchantId == request.auth.uid || 
+                   hasAdminRole() || hasBankRole() || hasManagerRole());
+      allow create: if hasAdminRole() || hasMerchantRole();
+      allow update: if hasAdminRole() || hasBankRole() ||
+                    (hasMerchantRole() && resource.data.merchantId == request.auth.uid);
+      allow delete: if hasAdminRole();
     }
     
-    // API key rules
+    // API Keys collection
     match /apiKeys/{keyId} {
-      allow read: if 
-        isMerchant(resource.data.merchantId) || 
-        request.auth.token.isAdmin == true;
-      allow write: if false;  // Only through Firebase Functions
+      // Admins can CRUD API keys
+      // Merchants can read and create their own API keys
+      allow read: if hasAdminRole() || 
+                  (hasMerchantRole() && resource.data.merchantId == request.auth.uid);
+      allow create: if hasAdminRole() || hasMerchantRole();
+      allow update, delete: if hasAdminRole() || 
+                            (hasMerchantRole() && resource.data.merchantId == request.auth.uid);
     }
     
-    // Webhook rules
-    match /webhooks/{webhookId} {
-      allow read: if 
-        isMerchant(resource.data.merchantId) || 
-        (hasValidApiKey() && 
-         get(/databases/$(database)/documents/apiKeys/$(request.headers.apikey)).data.merchantId == resource.data.merchantId);
-      allow write: if false;  // Only through Firebase Functions
-    }
-    
-    // Default deny all other collections
+    // Settings and other collections
     match /{document=**} {
-      allow read, write: if false;
+      // Default deny for any other collection unless specific rules above
+      allow read, write: if hasAdminRole();
     }
   }
 }

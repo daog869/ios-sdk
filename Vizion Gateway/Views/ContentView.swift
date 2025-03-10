@@ -7,291 +7,474 @@
 
 import SwiftUI
 import SwiftData
+import FirebaseAuth
+import FirebaseFirestore
 
 struct ContentView: View {
-    @State private var selectedTab: Int = 0
-    @State private var showSidePanel: Bool = true
-    @State private var isPanelPinned: Bool = true
-    @State private var environment: AppEnvironment = .sandbox
-    @State private var showEnvironmentPicker: Bool = false
-    
-    // List of all tab items
-    private var tabItems: [TabItem] {
-        [
-            TabItem(title: "Dashboard", icon: "square.grid.2x2", view: AnyView(DashboardView())),
-            TabItem(title: "Transactions", icon: "list.bullet", view: AnyView(TransactionMonitoringView())),
-            TabItem(title: "API Keys", icon: "key.fill", view: AnyView(APIKeysView())),
-            TabItem(title: "API Webhooks", icon: "arrow.triangle.branch", view: AnyView(WebhookEventsView())),
-            TabItem(title: "Merchants", icon: "building.2", view: AnyView(MerchantManagementView())),
-            TabItem(title: "Users", icon: "person.2.fill", view: AnyView(UserManagementView())),
-            TabItem(title: "Disputes", icon: "exclamationmark.shield", view: AnyView(DisputeManagementView())),
-            TabItem(title: "Banks", icon: "building.columns", view: AnyView(ConnectedBanksView())),
-            TabItem(title: "Accounts", icon: "creditcard", view: AnyView(SettlementAccountsView())),
-            TabItem(title: "Analytics", icon: "chart.line.uptrend.xyaxis", view: AnyView(RevenueAnalyticsView())),
-            TabItem(title: "Settings", icon: "gear", view: AnyView(SystemSettingsView()))
-        ]
-    }
+    @ObservedObject private var authManager = AuthorizationManager.shared
+    @State private var showingError: AppError?
+    @State private var showAuthDebugger = false
+    @Environment(\.colorScheme) var colorScheme
     
     var body: some View {
-        GeometryReader { geometry in
-            HStack(spacing: 0) {
-                // Side tab panel
-                if showSidePanel {
-                    VStack(spacing: 0) {
-                        // Header with environment selector
-                        VStack(spacing: 0) {
-                            HStack {
-                                Button(action: {
-                                    withAnimation {
-                                        showEnvironmentPicker.toggle()
-                                    }
-                                }) {
-                                    HStack {
-                                        Circle()
-                                            .fill(environment == .sandbox ? Color.orange : Color.green)
-                                            .frame(width: 10, height: 10)
-                                        
-                                        Text(environment.rawValue.capitalized)
-                                            .font(.subheadline)
-                                            .fontWeight(.medium)
-                                        
-                                        Image(systemName: "chevron.down")
-                                            .font(.caption)
-                                    }
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 6)
-                                    .background(Color.primary.opacity(0.1))
-                                    .cornerRadius(16)
-                                }
-                                
-                                Spacer()
-                                
-                                Button(action: {
-                                    withAnimation {
-                                        isPanelPinned.toggle()
-                                    }
-                                }) {
-                                    Image(systemName: isPanelPinned ? "pin.fill" : "pin.slash")
-                                        .foregroundColor(.primary)
-                                }
-                            }
-                            .padding(.horizontal)
-                            .padding(.vertical, 12)
-                            
-                            if showEnvironmentPicker {
-                                VStack(alignment: .leading, spacing: 0) {
-                                    ForEach(AppEnvironment.allCases, id: \.self) { env in
-                                        Button(action: {
-                                            withAnimation {
-                                                changeEnvironment(to: env)
-                                                showEnvironmentPicker = false
-                                            }
-                                        }) {
-                                            HStack {
-                                                Circle()
-                                                    .fill(env == .sandbox ? Color.orange : Color.green)
-                                                    .frame(width: 8, height: 8)
-                                                Text(env.rawValue.capitalized)
-                                                    .font(.subheadline)
-                                                
-                                                Spacer()
-                                                
-                                                if environment == env {
-                                                    Image(systemName: "checkmark")
-                                                        .font(.caption)
-                                                }
-                                            }
-                                            .padding(.vertical, 8)
-                                            .padding(.horizontal, 16)
-                                            .contentShape(Rectangle())
-                                        }
-                                        .buttonStyle(PlainButtonStyle())
-                                        
-                                        if env != AppEnvironment.allCases.last {
-                                            Divider()
-                                                .padding(.leading, 16)
-                                        }
-                                    }
-                                }
-                                .background(Color(UIColor.systemBackground))
-                                .cornerRadius(8)
-                                .shadow(color: Color.black.opacity(0.1), radius: 4)
-                                .padding(.horizontal, 12)
-                                .transition(.scale(scale: 0.95).combined(with: .opacity))
-                            }
-                            
-                            Divider()
-                        }
-                        .background(Color(UIColor.systemBackground))
-                        
-                        // Tab buttons
-                        ScrollView {
-                            VStack(spacing: 5) {
-                                ForEach(0..<tabItems.count, id: \.self) { index in
-                                    TabButton(
-                                        title: tabItems[index].title,
-                                        icon: tabItems[index].icon,
-                                        isSelected: selectedTab == index,
-                                        action: {
-                                            selectedTab = index
-                                            if !isPanelPinned {
-                                                withAnimation {
-                                                    showSidePanel = false
-                                                }
-                                            }
-                                        }
-                                    )
-                                }
-                            }
-                            .padding(.vertical)
-                        }
-                    }
-                    .frame(width: geometry.size.width * 0.25)
-                    .background(Color(UIColor.secondarySystemBackground))
-                    .overlay(
-                        Rectangle()
-                            .frame(width: 1)
-                            .foregroundColor(Color(UIColor.separator))
-                            .opacity(0.5),
-                        alignment: .trailing
-                    )
-                    .transition(.move(edge: .leading))
-                }
+        Group {
+            switch authManager.authState {
+            case .initializing:
+                LoadingView()
                 
-                // Content area
-                ZStack(alignment: .topLeading) {
-                    // Environment Indicator
-                    VStack {
-                        HStack(spacing: 8) {
-                            // Environment indicator pill
-                            if environment == .sandbox {
-                                Text("SANDBOX MODE")
-                                    .font(.caption)
-                                    .fontWeight(.bold)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(Color.orange.opacity(0.2))
-                                    .foregroundColor(Color.orange)
-                                    .cornerRadius(4)
-                            }
-                            
-                            Spacer()
+            case .signedIn:
+                MainTabView()
+                
+            case .signedOut:
+                AppAuthenticationView()
+            }
+        }
+        .withErrorHandling($showingError)
+        .onChange(of: authManager.errorMessage) { _, newMessage in
+            if let message = newMessage {
+                showingError = .authenticationError(message)
+            }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            // Debug button only visible in development
+            #if DEBUG
+            Button {
+                showAuthDebugger = true
+            } label: {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 20))
+                    .padding(12)
+                    .background(Color.orange)
+                    .foregroundColor(.white)
+                    .clipShape(Circle())
+                    .shadow(radius: 3)
+            }
+            .padding()
+            .opacity(0.8)
+            #endif
+        }
+        // Use the Firebase auth debugger from FirebaseAuthDebugger.swift
+        .modifier(AuthDebuggerModifier(isShowing: $showAuthDebugger))
+    }
+}
+
+struct LoadingView: View {
+    var body: some View {
+        VStack(spacing: 20) {
+            Image("AppLogo") // Replace with your app logo
+                .resizable()
+                .scaledToFit()
+                .frame(width: 120, height: 120)
+                .padding()
+            
+            ProgressView()
+                .scaleEffect(1.5)
+            
+            Text("Loading Vizion Gateway...")
+                .font(.headline)
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemBackground))
+    }
+}
+
+struct AppAuthenticationView: View {
+    @State private var showSignUp = false
+    
+    var body: some View {
+        NavigationView {
+            if showSignUp {
+                SignUpView()
+                    .environmentObject(AuthenticationManager.shared)
+            } else {
+                LoginView()
+            }
+        }
+    }
+}
+
+struct MainTabView: View {
+    @ObservedObject private var authManager = AuthorizationManager.shared
+    @State private var selectedSidebarItem: String? = "Dashboard"
+    
+    var body: some View {
+        Group {
+            if let user = authManager.currentUser, user.role == .admin {
+                // Admin view with side navigation
+                NavigationSplitView {
+                    AdminSidebarView(selection: $selectedSidebarItem)
+                } detail: {
+                    AdminDetailView(selection: selectedSidebarItem)
+                }
+            } else {
+                // Regular user view with bottom tabs
+                TabView {
+                    DashboardView()
+                        .tabItem {
+                            Label("Dashboard", systemImage: "chart.bar")
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 16)
+                    
+                    if let user = authManager.currentUser, user.role == .merchant {
+                        NavigationStack {
+                            POSView()
+                        }
+                        .tabItem {
+                            Label("Point of Sale", systemImage: "creditcard.and.contactless")
+                        }
                         
-                        Spacer()
-                    }
-                    .zIndex(1)
-                    
-                    // Current tab view
-                    tabItems[selectedTab].view
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    
-                    // Tab toggle button (appears only when panel is hidden or not pinned)
-                    if !showSidePanel || !isPanelPinned {
-                        Button(action: {
-                            withAnimation {
-                                showSidePanel.toggle()
-                                if showEnvironmentPicker {
-                                    showEnvironmentPicker = false
-                                }
+                        TransactionsView()
+                            .tabItem {
+                                Label("Transactions", systemImage: "list.bullet.rectangle")
                             }
-                        }) {
-                            Image(systemName: "sidebar.left")
+                    } else {
+                        CustomerTransactionsView()
+                            .tabItem {
+                                Label("My Transactions", systemImage: "arrow.left.arrow.right")
+                            }
+                        
+                        SendFundsView()
+                            .tabItem {
+                                Label("Send Money", systemImage: "dollarsign.arrow.circlepath")
+                            }
+                    }
+                    
+                    UserProfileView(user: authManager.currentUser!)
+                        .tabItem {
+                            Label("Profile", systemImage: "person.circle")
+                        }
+                }
+            }
+        }
+    }
+}
+
+struct AdminSidebarView: View {
+    @Binding var selection: String?
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var authManager = AuthorizationManager.shared
+    
+    var body: some View {
+        VStack {
+            List(selection: $selection) {
+                Group {
+                    NavigationLink(value: "Dashboard") {
+                        Label("Dashboard", systemImage: "chart.bar")
+                    }
+                    .padding(.vertical, 8)
+                    
+                    NavigationLink(value: "Transactions") {
+                        Label("Transactions", systemImage: "arrow.left.arrow.right")
+                    }
+                    .padding(.vertical, 8)
+                    
+                    NavigationLink(value: "Merchants") {
+                        Label("Merchants", systemImage: "building.2")
+                    }
+                    .padding(.vertical, 8)
+                    
+                    NavigationLink(value: "Users") {
+                        Label("Users", systemImage: "person.3")
+                    }
+                    .padding(.vertical, 8)
+                    
+                    NavigationLink(value: "Analytics") {
+                        Label("Analytics", systemImage: "chart.line.uptrend.xyaxis")
+                    }
+                    .padding(.vertical, 8)
+                    
+                    NavigationLink(value: "Verifications") {
+                        Label("Verifications", systemImage: "checkmark.shield")
+                    }
+                    .padding(.vertical, 8)
+                }
+                .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
+                
+                // Developer Section
+                Section("Developer") {
+                    Group {
+                        NavigationLink(value: "API Keys") {
+                            Label("API Keys", systemImage: "key.fill")
+                        }
+                        .padding(.vertical, 8)
+                        
+                        NavigationLink(value: "Webhooks") {
+                            Label("Webhooks", systemImage: "antenna.radiowaves.left.and.right")
+                        }
+                        .padding(.vertical, 8)
+                        
+                        NavigationLink(value: "API Docs") {
+                            Label("API Documentation", systemImage: "doc.text.fill")
+                        }
+                        .padding(.vertical, 8)
+                        
+                        NavigationLink(value: "SDK Guides") {
+                            Label("SDK Guides", systemImage: "book.fill")
+                        }
+                        .padding(.vertical, 8)
+                        
+                        NavigationLink(value: "Test Tools") {
+                            Label("Testing Tools", systemImage: "hammer.fill")
+                        }
+                        .padding(.vertical, 8)
+                        
+                        NavigationLink(value: "API Logs") {
+                            Label("API Logs", systemImage: "text.alignleft")
+                        }
+                        .padding(.vertical, 8)
+                    }
+                    .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
+                }
+            }
+            .listStyle(SidebarListStyle())
+            .navigationTitle("Admin Portal")
+            
+            Spacer()
+            
+            // Sign Out Button
+            Button(action: {
+                Task {
+                    do {
+                        try await authManager.signOut()
+                    } catch {
+                        print("Error signing out: \(error.localizedDescription)")
+                    }
+                }
+            }) {
+                HStack {
+                    Spacer()
+                    Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                        .foregroundColor(.red)
+                    Spacer()
+                }
+                .padding()
+                .background(Color(.systemBackground).opacity(0.2))
+                .cornerRadius(10)
+            }
+            .padding(.horizontal)
+            .padding(.bottom, 20)
+        }
+    }
+}
+
+struct AdminDetailView: View {
+    let selection: String?
+    
+    var body: some View {
+        Group {
+            switch selection {
+            case "Dashboard":
+                DashboardView()
+            case "Transactions":
+                TransactionsView()
+            case "Merchants":
+                MerchantManagementView()
+            case "Users":
+                UserManagementView()
+            case "Analytics":
+                RevenueAnalyticsView()
+            case "Verifications":
+                VerificationManagementView()
+            case "API Keys":
+                APIKeysView()
+            case "Webhooks":
+                WebhookConfigurationView()
+            case "API Docs":
+                APIDocumentationView()
+            case "SDK Guides":
+                SDKGuideView()
+            case "Test Tools":
+                TestTransactionView()
+            case "API Logs":
+                APILogsView()
+            default:
+                DashboardView()
+            }
+        }
+    }
+}
+
+// Customer-specific transaction view
+struct CustomerTransactionsView: View {
+    @ObservedObject private var authManager = AuthorizationManager.shared
+    @State private var transactions: [Transaction] = []
+    @State private var isLoading = true
+    @State private var errorMessage: AppError?
+    
+    var body: some View {
+        NavigationView {
+            Group {
+                if isLoading {
+                    ProgressView()
+                        .scaleEffect(1.5)
+                } else if transactions.isEmpty {
+                    VStack(spacing: 16) {
+                        Image(systemName: "arrow.left.arrow.right.circle")
+                            .font(.system(size: 60))
+                            .foregroundColor(.blue.opacity(0.7))
+                        
+                        Text("No Transactions")
                                 .font(.title2)
-                                .padding(12)
-                                .background(Color(UIColor.secondarySystemBackground))
-                                .clipShape(Circle())
-                                .shadow(radius: 2)
+                            .fontWeight(.semibold)
+                        
+                        Text("You haven't made any transactions yet.")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal)
+                        
+                        Button("New Transaction") {
+                            // Action to create a new transaction
                         }
                         .padding()
-                        .transition(.opacity)
-                        .zIndex(2)
+                        .foregroundColor(.white)
+                        .background(Color.blue)
+                        .cornerRadius(10)
+                        .padding(.top, 10)
+                    }
+                    .padding()
+                } else {
+                    List(transactions) { transaction in
+                        NavigationLink(destination: TransactionDetailView(transaction: transaction)) {
+                            TransactionRow(transaction: transaction)
+                        }
+                    }
+                    .refreshable {
+                        await loadTransactions()
                     }
                 }
             }
-        }
-        .ignoresSafeArea(edges: .bottom)
-        .onChange(of: selectedTab) { _, _ in
-            // Close environment picker if open when changing tabs
-            if showEnvironmentPicker {
-                withAnimation {
-                    showEnvironmentPicker = false
+            .navigationTitle("My Transactions")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: {
+                        // Create new transaction
+                    }) {
+                        Image(systemName: "plus")
+                    }
                 }
             }
-        }
-        .onAppear {
-            // Load current environment from FirebaseManager
-            loadCurrentEnvironment()
-        }
-    }
-    
-    // MARK: - Environment Methods
-    
-    private func loadCurrentEnvironment() {
-        // Get saved environment from UserDefaults
-        if let savedEnv = UserDefaults.standard.string(forKey: "environment"),
-           let env = AppEnvironment(rawValue: savedEnv) {
-            environment = env
+            .withErrorHandling($errorMessage)
+            .task {
+                await loadTransactions()
+            }
         }
     }
     
-    private func changeEnvironment(to newEnvironment: AppEnvironment) {
-        environment = newEnvironment
+    private func loadTransactions() async {
+        guard let userId = authManager.currentUser?.id else { return }
         
-        // Update environment in FirebaseManager
-        FirebaseManager.shared.setEnvironment(newEnvironment)
+        isLoading = true
+        
+        do {
+            // Load user's transactions from Firebase
+            let userTransactions = try await FirebaseManager.shared.fetchUserTransactions(userId: userId)
+            
+            await MainActor.run {
+                self.transactions = userTransactions.sorted(by: { $0.timestamp > $1.timestamp })
+                self.isLoading = false
+            }
+        } catch {
+            await MainActor.run {
+                self.errorMessage = AppError.from(error)
+                self.isLoading = false
+            }
+        }
     }
 }
 
-// MARK: - Supporting Types
-
-enum AppEnvironment: String, CaseIterable {
-    case sandbox
-    case production
-}
-
-// Represents a tab item in our app
-struct TabItem {
-    let title: String
-    let icon: String
-    let view: AnyView
-}
-
-// A custom button for the side tab panel
-struct TabButton: View {
-    let title: String
-    let icon: String
-    let isSelected: Bool
-    let action: () -> Void
+struct TransactionRow: View {
+    let transaction: Transaction
     
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                Image(systemName: icon)
-                    .font(.system(size: 16, weight: isSelected ? .bold : .regular))
-                    .foregroundColor(isSelected ? .accentColor : .primary)
+        HStack {
+            // Transaction icon based on type
+            ZStack {
+                Circle()
+                    .fill(transaction.status == .completed ? Color.green.opacity(0.2) : Color.orange.opacity(0.2))
+                    .frame(width: 40, height: 40)
                 
-                Text(title)
-                    .font(.system(size: 14, weight: isSelected ? .semibold : .regular))
-                    .foregroundColor(isSelected ? .accentColor : .primary)
+                Image(systemName: iconName)
+                    .foregroundColor(transaction.status == .completed ? .green : .orange)
+            }
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text(transaction.transactionDescription ?? "Transaction")
+                    .font(.headline)
+                
+                Text(formattedDate)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
                 
                 Spacer()
+            
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(formattedAmount)
+                    .font(.headline)
+                    .foregroundColor(transaction.type == .refund ? .green : .primary)
+                
+                Text(transaction.status.rawValue.capitalized)
+                    .font(.caption)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 2)
+                    .background(statusColor.opacity(0.2))
+                    .foregroundColor(statusColor)
+                    .cornerRadius(4)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .background(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
-            .cornerRadius(8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(PlainButtonStyle())
-        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+    }
+    
+    private var formattedAmount: String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = transaction.currency
+        let decimalNumber = NSDecimalNumber(decimal: transaction.amount)
+        return formatter.string(from: decimalNumber) ?? "$\(transaction.amount)"
+    }
+    
+    private var formattedDate: String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: transaction.timestamp)
+    }
+    
+    private var iconName: String {
+        switch transaction.type {
+        case .payment:
+            return "arrow.up.circle.fill"
+        case .refund:
+            return "arrow.down.circle.fill"
+        case .payout:
+            return "banknote.fill"
+        case .fee:
+            return "percent"
+        case .chargeback:
+            return "arrow.uturn.down.circle.fill"
+        case .adjustment:
+            return "arrow.left.arrow.right.circle.fill"
+        }
+    }
+    
+    private var statusColor: Color {
+        switch transaction.status {
+        case .completed:
+            return .green
+        case .pending:
+            return .orange
+        case .failed:
+            return .red
+        case .refunded:
+            return .blue
+        case .disputed:
+            return .purple
+        case .processing:
+            return .blue
+        case .cancelled:
+            return .gray
+        }
     }
 }
 
-#Preview {
-    ContentView()
-        .modelContainer(for: [MerchantUser.self, PaymentTransaction.self], inMemory: true)
-}

@@ -1,7 +1,8 @@
 import SwiftUI
 import SwiftData
 import Charts
-import Vizion_Gateway
+import FirebaseFirestore
+import FirebaseAuth
 
 // We need to access TransactionRow from CommonViews directly
 // without trying to use module imports
@@ -12,11 +13,12 @@ struct DashboardView: View {
     @State private var selectedPaymentType: String? = nil
     @State private var isRefreshing: Bool = false
     
-    // Sample data until Firebase integration
-    @State private var totalTransactions: Int = 0
-    @State private var transactionVolume: Double = 0
-    @State private var revenueAmount: Double = 0
-    @State private var activeIntegrations: Int = 0
+    // Dashboard data from Firebase
+    @State private var dashboardData: DashboardData?
+    @State private var transactions: [Transaction] = []
+    @State private var integrations: [IntegrationData] = []
+    @State private var isLoading = true
+    @State private var error: Error?
     
     // Charts data
     @State private var transactionData: [TransactionDataPoint] = []
@@ -32,13 +34,15 @@ struct DashboardView: View {
                     
                     Spacer()
                     
-                    // Time Range Picker
-                    Picker("Time Range", selection: $timeRange) {
-                        ForEach(TimeRange.allCases, id: \.self) { range in
-                            Text(range.rawValue).tag(range)
+                    // Time Range Picker - Breaking up the complex expression
+                    VStack {
+                        Picker("Time Range", selection: $timeRange) {
+                            ForEach(TimeRange.allCases, id: \.self) { range in
+                                Text(range.rawValue).tag(range)
+                            }
                         }
+                        .pickerStyle(.segmented)
                     }
-                    .pickerStyle(.segmented)
                     .frame(width: 300)
                     
                     // Refresh Button
@@ -54,213 +58,278 @@ struct DashboardView: View {
                 }
                 .padding(.horizontal)
                 
-                // Main Statistics Cards
-                LazyVGrid(columns: [
-                    GridItem(.flexible(), spacing: 16),
-                    GridItem(.flexible(), spacing: 16),
-                    GridItem(.flexible(), spacing: 16),
-                    GridItem(.flexible(), spacing: 16)
-                ], spacing: 16) {
-                    StatisticCard(
-                        title: "Transactions",
-                        value: "\(totalTransactions)",
-                        icon: "arrow.left.arrow.right",
-                        color: .blue,
-                        change: "+12%"
-                    )
+                if isLoading {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    // Main Statistics Cards
+                    LazyVGrid(columns: [
+                        GridItem(.flexible(), spacing: 16),
+                        GridItem(.flexible(), spacing: 16),
+                        GridItem(.flexible(), spacing: 16),
+                        GridItem(.flexible(), spacing: 16)
+                    ], spacing: 16) {
+                        StatisticCard(
+                            title: "Transactions",
+                            value: "\(dashboardData?.totalTransactions ?? 0)",
+                            icon: "arrow.left.arrow.right",
+                            color: .blue,
+                            change: calculateChange(for: .transactions)
+                        )
+                        
+                        StatisticCard(
+                            title: "Volume",
+                            value: "$\(formatCurrency(dashboardData?.transactionVolume ?? 0))",
+                            icon: "chart.bar.fill",
+                            color: .green,
+                            change: calculateChange(for: .volume)
+                        )
+                        
+                        StatisticCard(
+                            title: "Revenue",
+                            value: "$\(formatCurrency(dashboardData?.revenueAmount ?? 0))",
+                            icon: "dollarsign.circle.fill",
+                            color: .purple,
+                            change: calculateChange(for: .revenue)
+                        )
+                        
+                        StatisticCard(
+                            title: "Integrations",
+                            value: "\(dashboardData?.activeIntegrations ?? 0)",
+                            icon: "link.circle.fill",
+                            color: .orange,
+                            change: calculateChange(for: .integrations)
+                        )
+                    }
+                    .padding(.horizontal)
                     
-                    StatisticCard(
-                        title: "Volume",
-                        value: "$\(formatCurrency(transactionVolume))",
-                        icon: "chart.bar.fill",
-                        color: .green,
-                        change: "+8.5%"
-                    )
+                    // Transaction Chart
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Transaction Overview")
+                            .font(.headline)
+                        
+                        // Chart container with border
+                        VStack(alignment: .leading, spacing: 12) {
+                            if !transactionData.isEmpty {
+                                Chart {
+                                    ForEach(transactionData) { dataPoint in
+                                        LineMark(
+                                            x: .value("Time", dataPoint.timestamp),
+                                            y: .value("Amount", dataPoint.amount)
+                                        )
+                                        .foregroundStyle(Color.blue.gradient)
+                                        
+                                        AreaMark(
+                                            x: .value("Time", dataPoint.timestamp),
+                                            y: .value("Amount", dataPoint.amount)
+                                        )
+                                        .foregroundStyle(Color.blue.opacity(0.1).gradient)
+                                    }
+                                }
+                                .frame(height: 200)
+                            } else {
+                                Text("No transaction data available")
+                                    .foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, minHeight: 200)
+                            }
+                        }
+                        .padding()
+                        .background(Color(UIColor.systemBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .shadow(color: Color.black.opacity(0.05), radius: 5, x: 0, y: 2)
+                    }
+                    .padding(.horizontal)
                     
-                    StatisticCard(
-                        title: "Revenue",
-                        value: "$\(formatCurrency(revenueAmount))",
-                        icon: "dollarsign.circle.fill",
-                        color: .purple,
-                        change: "+5.2%"
-                    )
-                    
-                    StatisticCard(
-                        title: "Integrations",
-                        value: "\(activeIntegrations)",
-                        icon: "link.circle.fill",
-                        color: .orange,
-                        change: "+2"
-                    )
-                }
-                .padding(.horizontal)
-                
-                // Transaction Chart
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("Transaction Overview")
-                        .font(.headline)
-                    
-                    // Chart container with border
-                    VStack(alignment: .leading, spacing: 12) {
-                        if !transactionData.isEmpty {
-                            Chart {
-                                ForEach(transactionData) { dataPoint in
-                                    LineMark(
-                                        x: .value("Time", dataPoint.timestamp),
-                                        y: .value("Amount", dataPoint.amount)
-                                    )
-                                    .foregroundStyle(Color.blue.gradient)
+                    HStack(alignment: .top, spacing: 16) {
+                        // Recent Transactions
+                        VStack(alignment: .leading, spacing: 16) {
+                            Text("Recent Transactions")
+                                .font(.headline)
+                            
+                            VStack(spacing: 0) {
+                                // Headers
+                                HStack {
+                                    Text("ID")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                        .frame(width: 80, alignment: .leading)
                                     
-                                    AreaMark(
-                                        x: .value("Time", dataPoint.timestamp),
-                                        y: .value("Amount", dataPoint.amount)
-                                    )
-                                    .foregroundStyle(Color.blue.opacity(0.1).gradient)
+                                    Text("Merchant")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    
+                                    Text("Amount")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                        .frame(width: 100, alignment: .trailing)
+                                    
+                                    Text("Status")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                        .frame(width: 100, alignment: .trailing)
+                                }
+                                .padding(.vertical, 8)
+                                .padding(.horizontal, 12)
+                                .background(Color(UIColor.systemGray6))
+                                
+                                Divider()
+                                
+                                // Sample transactions (will be replaced with real data from Firebase)
+                                ForEach(transactions) { transaction in
+                                    DashboardTransactionRow(transaction: transaction)
+                                    
+                                    if transaction.id != transactions.last?.id {
+                                        Divider()
+                                    }
                                 }
                             }
-                            .frame(height: 200)
-                        } else {
-                            Text("No transaction data available")
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, minHeight: 200)
+                            .background(Color(UIColor.systemBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .shadow(color: Color.black.opacity(0.05), radius: 5, x: 0, y: 2)
                         }
-                    }
-                    .padding()
-                    .background(Color(UIColor.systemBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .shadow(color: Color.black.opacity(0.05), radius: 5, x: 0, y: 2)
-                }
-                .padding(.horizontal)
-                
-                HStack(alignment: .top, spacing: 16) {
-                    // Recent Transactions
-                    VStack(alignment: .leading, spacing: 16) {
-                        Text("Recent Transactions")
-                            .font(.headline)
+                        .frame(maxWidth: .infinity)
                         
-                        VStack(spacing: 0) {
-                            // Headers
-                            HStack {
-                                Text("ID")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 80, alignment: .leading)
-                                
-                                Text("Merchant")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                
-                                Text("Amount")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 100, alignment: .trailing)
-                                
-                                Text("Status")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 100, alignment: .trailing)
-                            }
-                            .padding(.vertical, 8)
-                            .padding(.horizontal, 12)
-                            .background(Color(UIColor.systemGray6))
+                        // API Integration Status
+                        VStack(alignment: .leading, spacing: 16) {
+                            Text("API Integrations")
+                                .font(.headline)
                             
-                            Divider()
-                            
-                            // Sample transactions (will be replaced with real data from Firebase)
-                            ForEach(getSampleTransactions()) { transaction in
-                                DashboardTransactionRow(transaction: transaction)
-                                
-                                if transaction.id != getSampleTransactions().last?.id {
-                                    Divider()
+                            VStack(spacing: 8) {
+                                ForEach(integrations) { integration in
+                                    IntegrationStatusCard(integration: integration)
                                 }
                             }
+                            .background(Color(UIColor.systemBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .shadow(color: Color.black.opacity(0.05), radius: 5, x: 0, y: 2)
                         }
-                        .background(Color(UIColor.systemBackground))
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                        .shadow(color: Color.black.opacity(0.05), radius: 5, x: 0, y: 2)
+                        .frame(maxWidth: .infinity)
                     }
-                    .frame(maxWidth: .infinity)
-                    
-                    // API Integration Status
-                    VStack(alignment: .leading, spacing: 16) {
-                        Text("API Integrations")
-                            .font(.headline)
-                        
-                        VStack(spacing: 8) {
-                            ForEach(getSampleIntegrations()) { integration in
-                                IntegrationStatusCard(integration: integration)
-                            }
-                        }
-                        .background(Color(UIColor.systemBackground))
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                        .shadow(color: Color.black.opacity(0.05), radius: 5, x: 0, y: 2)
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-                .padding(.horizontal)
-                
-                // Sandbox Disclaimer
-                if let selectedEnvironment = UserDefaults.standard.string(forKey: "environment"),
-                   selectedEnvironment == AppEnvironment.sandbox.rawValue {
-                    HStack {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
-                        
-                        Text("You are currently in Sandbox mode. No real transactions are being processed.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        
-                        Spacer()
-                    }
-                    .padding()
-                    .background(Color.orange.opacity(0.1))
-                    .cornerRadius(8)
                     .padding(.horizontal)
                 }
             }
             .padding(.vertical)
         }
         .background(Color(UIColor.systemGroupedBackground))
-        .onAppear {
-            loadDashboardData()
+        .task {
+            await loadDashboardData()
         }
         .onChange(of: timeRange) { _, _ in
-            loadDashboardData()
+            Task {
+                await loadDashboardData()
+            }
         }
         .refreshable {
-            refreshDashboard()
+            await loadDashboardData()
         }
     }
     
     // MARK: - Methods
     
-    private func loadDashboardData() {
-        // This will be replaced with Firebase data loading
-        // For now, load sample data
+    private func loadDashboardData() async {
+        isLoading = true
+        isRefreshing = true
         
-        totalTransactions = Int.random(in: 800..<1500)
-        transactionVolume = Double.random(in: 50000..<150000)
-        revenueAmount = transactionVolume * 0.025
-        activeIntegrations = Int.random(in: 5..<15)
+        do {
+            // Load dashboard data from Firebase
+            dashboardData = try await FirebaseManager.shared.getDashboardData()
+            
+            // Load transactions using the standard getTransactions method
+            transactions = try await FirebaseManager.shared.getTransactions(limit: 5)
+            
+            // Instead of getting API keys directly, we'll update the integrations from dashboard data
+            integrations = createIntegrationsFromDashboard()
+            
+            // Update transaction chart data
+            await updateTransactionData()
+        } catch {
+            self.error = error
+            print("Error loading dashboard data: \(error.localizedDescription)")
+        }
         
-        // Generate chart data based on time range
-        transactionData = generateTransactionData(for: timeRange)
+        isLoading = false
+        isRefreshing = false
+    }
+    
+    // Create integrations data from dashboard data
+    private func createIntegrationsFromDashboard() -> [IntegrationData] {
+        // Create default integrations if dashboard data isn't available yet
+        guard let dashboard = dashboardData else {
+            return []
+        }
+        
+        // Create some basic integration data based on dashboard activeIntegrations count
+        var result: [IntegrationData] = []
+        
+        // If there are active integrations reported in the dashboard data, create entries for them
+        for i in 0..<dashboard.activeIntegrations {
+            result.append(
+                IntegrationData(
+                    id: "integration-\(i+1)",
+                    name: "API Integration \(i+1)",
+                    status: .active,
+                    apiVersion: "v1",
+                    lastActive: Date().addingTimeInterval(-Double(i) * 3600)
+                )
+            )
+        }
+        
+        return result
     }
     
     private func refreshDashboard() {
-        withAnimation {
-            isRefreshing = true
+        Task {
+            await loadDashboardData()
+        }
+    }
+    
+    private func updateTransactionData() async {
+        do {
+            // Get historical transaction data from Firebase based on selected time range
+            let historicalTransactions = try await FirebaseManager.shared.getHistoricalTransactions(for: timeRange)
+            
+            if historicalTransactions.isEmpty {
+                // If no transactions exist, show empty chart data
+                transactionData = []
+            } else {
+                // Create data points from real transactions
+                transactionData = historicalTransactions.map { transaction in
+                    TransactionDataPoint(
+                        id: UUID(),
+                        timestamp: transaction.timestamp,
+                        amount: NSDecimalNumber(decimal: transaction.amount).doubleValue
+                    )
+                }
+            }
+        } catch {
+            print("Error updating transaction data: \(error.localizedDescription)")
+            transactionData = []
+        }
+    }
+    
+    private func calculateChange(for metric: DashboardMetric) -> String {
+        guard let dashboardData = dashboardData else { return "+0%" }
+        
+        let changeValue: Double
+        
+        switch metric {
+        case .transactions:
+            changeValue = dashboardData.transactionChange
+        case .volume:
+            changeValue = dashboardData.volumeChange
+        case .revenue:
+            changeValue = dashboardData.revenueChange
+        case .integrations:
+            changeValue = dashboardData.integrationChange
         }
         
-        // Simulate network request delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            loadDashboardData()
-            
-            withAnimation {
-                isRefreshing = false
-            }
-        }
+        let prefix = changeValue >= 0 ? "+" : ""
+        return "\(prefix)\(String(format: "%.1f", changeValue))%"
+    }
+    
+    enum DashboardMetric {
+        case transactions, volume, revenue, integrations
     }
     
     private func formatCurrency(_ value: Double) -> String {
@@ -274,53 +343,7 @@ struct DashboardView: View {
     
     // MARK: - Sample Data Generation
     
-    private func getSampleTransactions() -> [TransactionData] {
-        return [
-            TransactionData(id: "TX123456", merchantName: "Coffee Shop", amount: 25.50, status: .completed, timestamp: Date()),
-            TransactionData(id: "TX123457", merchantName: "Electronics Store", amount: 899.99, status: .completed, timestamp: Date().addingTimeInterval(-3600)),
-            TransactionData(id: "TX123458", merchantName: "Grocery Market", amount: 156.78, status: .pending, timestamp: Date().addingTimeInterval(-7200)),
-            TransactionData(id: "TX123459", merchantName: "Online Shop", amount: 49.99, status: .failed, timestamp: Date().addingTimeInterval(-14400)),
-            TransactionData(id: "TX123460", merchantName: "Restaurant", amount: 87.65, status: .completed, timestamp: Date().addingTimeInterval(-28800))
-        ]
-    }
-    
-    private func getSampleIntegrations() -> [IntegrationData] {
-        return [
-            IntegrationData(id: "INT001", name: "E-commerce Platform", status: .active, apiVersion: "v2", lastActive: Date()),
-            IntegrationData(id: "INT002", name: "Mobile Payments App", status: .active, apiVersion: "v1", lastActive: Date().addingTimeInterval(-1800)),
-            IntegrationData(id: "INT003", name: "Subscription Service", status: .active, apiVersion: "v2", lastActive: Date().addingTimeInterval(-3600)),
-            IntegrationData(id: "INT004", name: "POS System", status: .inactive, apiVersion: "v1", lastActive: Date().addingTimeInterval(-86400))
-        ]
-    }
-    
-    private func generateTransactionData(for timeRange: TimeRange) -> [TransactionDataPoint] {
-        var dataPoints: [TransactionDataPoint] = []
-        let now = Date()
-        
-        let (dataPointCount, timeInterval) = timeRange.chartParameters
-        
-        for i in 0..<dataPointCount {
-            let timestamp = now.addingTimeInterval(-Double(dataPointCount - i - 1) * timeInterval)
-            
-            // Generate a somewhat realistic curve with some randomness
-            let baseValue = Double.random(in: 8000..<12000)
-            let hourOfDay = Calendar.current.component(.hour, from: timestamp)
-            
-            // Transactions are higher during business hours
-            let timeMultiplier = (hourOfDay >= 9 && hourOfDay <= 17) ? Double.random(in: 1.2...1.5) : Double.random(in: 0.6...0.9)
-            
-            // Weekend dip
-            let weekday = Calendar.current.component(.weekday, from: timestamp)
-            let weekendMultiplier = (weekday == 1 || weekday == 7) ? 0.7 : 1.0
-            
-            // Calculate final value with some noise
-            let value = baseValue * timeMultiplier * weekendMultiplier * Double.random(in: 0.95...1.05)
-            
-            dataPoints.append(TransactionDataPoint(id: UUID(), timestamp: timestamp, amount: value))
-        }
-        
-        return dataPoints
-    }
+    // No sample data generation needed anymore
 }
 
 // MARK: - Supporting Views
@@ -426,19 +449,19 @@ struct IntegrationStatusCard: View {
 }
 
 struct DashboardTransactionRow: View {
-    let transaction: TransactionData
+    let transaction: Transaction
     
     var body: some View {
         HStack {
-            Text(transaction.id)
+            Text(transaction.id.prefix(8))
                 .font(.system(.body, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .frame(width: 80, alignment: .leading)
             
-            Text(transaction.merchantName)
+            Text(transaction.merchantName ?? "Unknown Merchant")
                 .frame(maxWidth: .infinity, alignment: .leading)
             
-            Text("$\(String(format: "%.2f", transaction.amount))")
+            Text("$\(String(format: "%.2f", NSDecimalNumber(decimal: transaction.amount).doubleValue))")
                 .frame(width: 100, alignment: .trailing)
             
             HStack(spacing: 4) {
@@ -455,14 +478,16 @@ struct DashboardTransactionRow: View {
         .padding(.horizontal, 12)
     }
     
-    private func statusColor(_ status: DashboardTransactionStatus) -> Color {
+    private func statusColor(_ status: TransactionStatus) -> Color {
         switch status {
         case .completed:
             return .green
-        case .pending:
+        case .pending, .processing:
             return .orange
-        case .failed:
+        case .failed, .disputed, .cancelled:
             return .red
+        case .refunded:
+            return .blue
         }
     }
 }
@@ -478,21 +503,7 @@ struct TransactionDataPoint: Identifiable {
     let amount: Double
 }
 
-struct TransactionData: Identifiable {
-    let id: String
-    let merchantName: String
-    let amount: Double
-    let status: DashboardTransactionStatus
-    let timestamp: Date
-}
-
-// Dashboard-specific enums to avoid ambiguity with model enums
-enum DashboardTransactionStatus: String {
-    case completed = "Completed"
-    case pending = "Pending"
-    case failed = "Failed"
-}
-
+// IntegrationData structure
 struct IntegrationData: Identifiable {
     let id: String
     let name: String
@@ -504,4 +515,38 @@ struct IntegrationData: Identifiable {
 enum IntegrationStatus: String {
     case active = "Active"
     case inactive = "Inactive"
+}
+
+// MARK: - FirebaseManager Extensions
+
+// Get historical transactions by date range
+extension FirebaseManager {
+    func getHistoricalTransactions(for timeRange: TimeRange) async throws -> [Transaction] {
+        // Get the start date based on the time range
+        let startDate: Date
+        let endDate = Date()
+        
+        switch timeRange {
+        case .today:
+            startDate = Calendar.current.startOfDay(for: Date())
+        case .week:
+            startDate = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
+        case .month:
+            startDate = Calendar.current.date(byAdding: .month, value: -1, to: Date()) ?? Date()
+        case .year:
+            startDate = Calendar.current.date(byAdding: .year, value: -1, to: Date()) ?? Date()
+        }
+        
+        // Get transactions and filter by date client-side
+        let allTransactions = try await getTransactions(limit: 100)
+        return allTransactions.filter { transaction in
+            return transaction.timestamp >= startDate && transaction.timestamp <= endDate
+        }
+    }
+}
+
+// Preview provider
+#Preview {
+    DashboardView()
+        .modelContainer(for: Transaction.self, inMemory: true)
 } 

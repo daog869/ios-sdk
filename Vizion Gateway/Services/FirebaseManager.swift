@@ -6,8 +6,15 @@ import FirebaseAuth
 import FirebaseStorage
 import FirebaseFunctions
 
-// Import models directly from the module
-import Vizion_Gateway
+
+// Define error types for Firebase operations
+enum FirebaseError: Error {
+    case documentNotFound
+    case invalidData
+    case authenticationRequired
+    case networkError
+    case unknown(Error)
+}
 
 // The FirebaseManager class uses the model types directly without typealiases
 class FirebaseManager {
@@ -70,20 +77,110 @@ class FirebaseManager {
     
     // MARK: - Authentication Methods
     
-    func signIn(email: String, password: String) async throws -> MerchantUser {
-        // Firebase authentication
-        let authResult = try await auth.signIn(withEmail: email, password: password)
-        let uid = authResult.user.uid
-        
-        // Get user data from Firestore
-        let userDoc = try await db.collection("users").document(uid).getDocument()
-        
-        guard let userData = userDoc.data(), 
-              let user = MerchantUser.fromDictionary(userData, id: uid) else {
-            throw NSError(domain: "FirebaseManager", code: 1001, userInfo: [NSLocalizedDescriptionKey: "Failed to fetch user data"])
+    private func verifyUserRole() async throws -> String {
+        guard let currentUser = auth.currentUser else {
+            throw FirebaseError.authenticationRequired
         }
         
-        return user
+        // Force refresh token to ensure we have latest claims
+        let tokenResult = try await currentUser.getIDTokenResult(forcingRefresh: true)
+        
+        // Check if user has role in claims
+        if let role = tokenResult.claims["role"] as? String {
+            return role
+        }
+        
+        // If no role in claims, check Firestore
+        let userDoc = try await db.collection("users").document(currentUser.uid).getDocument()
+        guard let role = userDoc.data()?["role"] as? String else {
+            throw FirebaseError.invalidData
+        }
+        
+        return role
+    }
+    
+    func signIn(email: String, password: String) async throws -> MerchantUser {
+        // Firebase authentication
+        do {
+            let authResult = try await auth.signIn(withEmail: email, password: password)
+            let uid = authResult.user.uid
+            
+            // Update the user's token force refresh to ensure latest permissions
+            try await authResult.user.getIDTokenResult(forcingRefresh: true)
+            
+            // Get user data from Firestore
+            let userDoc = try await db.collection("users").document(uid).getDocument()
+            
+            // Check if user document exists
+            if !userDoc.exists {
+                print("User document not found for authenticated user: \(uid)")
+                
+                // Create a default user document since the auth user exists but not the Firestore document
+                let defaultUser = MerchantUser(
+                    id: uid,
+                    firstName: authResult.user.displayName?.components(separatedBy: " ").first ?? "",
+                    lastName: authResult.user.displayName?.components(separatedBy: " ").last ?? "",
+                    email: email,
+                    phone: nil,
+                    role: .merchant,
+                    isActive: true,
+                    createdAt: Date(),
+                    lastLogin: Date(),
+                    island: nil,
+                    address: nil,
+                    businessName: nil,
+                    firebaseId: uid,
+                    isVerified: false,
+                    verificationDate: nil
+                )
+                
+                // Save the default user to Firestore
+                try await createUser(defaultUser)
+                print("Created default user document for: \(uid)")
+                
+                return defaultUser
+            }
+            
+            guard let userData = userDoc.data(), 
+                  let user = MerchantUser.fromDictionary(userData, id: uid) else {
+                throw NSError(domain: "FirebaseManager", code: 1001, userInfo: [NSLocalizedDescriptionKey: "Failed to fetch user data"])
+            }
+            
+            // Update the user's last login time
+            try await updateUserLastLogin(userId: uid)
+            
+            print("Successfully signed in user: \(user.email)")
+            return user
+        } catch {
+            print("Firebase sign-in error: \(error.localizedDescription)")
+            throw error
+        }
+    }
+    
+    // This method ensures the current authentication state is valid
+    func validateAuthState() async throws -> Bool {
+        guard let currentUser = auth.currentUser else {
+            print("No authenticated user found")
+            return false
+        }
+        
+        // Force refresh the token to ensure it has current permissions
+        do {
+            let tokenResult = try await currentUser.getIDTokenResult(forcingRefresh: true)
+            print("Token refreshed. Expiration: \(tokenResult.expirationDate)")
+            return true
+        } catch {
+            print("Error refreshing authentication token: \(error.localizedDescription)")
+            try auth.signOut() // Sign out if token refresh fails
+            throw error
+        }
+    }
+    
+    // Monitor authentication state changes
+    func monitorAuthState(completion: @escaping (Bool) -> Void) {
+        auth.addStateDidChangeListener { _, user in
+            completion(user != nil)
+        }
     }
     
     func signOut() async throws {
@@ -141,6 +238,23 @@ class FirebaseManager {
         return users
     }
     
+    func fetchUser(withId userId: String) async throws -> User? {
+        let document = try await db.collection("users").document(userId).getDocument()
+        
+        guard document.exists, let data = document.data() else {
+            return nil
+        }
+        
+        return User.fromDictionary(data, id: userId)
+    }
+    
+    func updateUserLastLogin(userId: String) async throws {
+        let ref = db.collection("users").document(userId)
+        try await ref.updateData([
+            "lastLogin": Date().timeIntervalSince1970
+        ])
+    }
+    
     func createUser(_ user: MerchantUser) async throws -> MerchantUser {
         // Add to Firestore
         let ref = db.collection("users").document(user.id)
@@ -176,22 +290,30 @@ class FirebaseManager {
     
     // MARK: - Transaction Methods
     
-    func getTransactions(limit: Int = 50) async throws -> [PaymentTransaction] {
-        let snapshot = try await db.collection("transactions")
-            .whereField("environment", isEqualTo: environment.rawValue)
-            .order(by: "timestamp", descending: true)
-            .limit(to: limit)
-            .getDocuments()
-        
-        var transactions: [PaymentTransaction] = []
-        
-        for document in snapshot.documents {
-            if let transaction = PaymentTransaction.fromDictionary(document.data(), id: document.documentID) {
-                transactions.append(transaction)
-            }
+    func getTransactions(limit: Int = 50) async throws -> [Transaction] {
+        let role = try await verifyUserRole()
+        guard let currentUser = auth.currentUser else {
+            throw FirebaseError.authenticationRequired
         }
         
-        return transactions
+        var query = db.collection("transactions")
+            .whereField("environment", isEqualTo: environment.rawValue)
+        
+        // Only filter by merchantId if not admin
+        if role != "admin" {
+            query = query.whereField("merchantId", isEqualTo: currentUser.uid)
+        }
+        
+        // Add ordering and limit
+        query = query.order(by: "timestamp", descending: true)
+        if limit > 0 {
+            query = query.limit(to: limit)
+        }
+        
+        let snapshot = try await query.getDocuments()
+        return snapshot.documents.compactMap { document in
+            Transaction.fromDictionary(document.data(), id: document.documentID)
+        }
     }
     
     func createTransaction(_ transaction: PaymentTransaction) async throws -> PaymentTransaction {
@@ -211,6 +333,38 @@ class FirebaseManager {
         // Update in Firestore
         let ref = db.collection("transactions").document(transaction.id)
         try await ref.updateData(transaction.toDictionary())
+    }
+    
+    // Fetch a single transaction by ID
+    func getTransaction(id: String) async throws -> Transaction {
+        let documentSnapshot = try await db.collection("transactions").document(id).getDocument()
+        
+        guard documentSnapshot.exists, 
+              let data = documentSnapshot.data(),
+              let transaction = Transaction.fromDictionary(data, id: documentSnapshot.documentID) else {
+            throw FirebaseError.documentNotFound
+        }
+        
+        return transaction
+    }
+    
+    // MARK: - User Transaction Methods
+    
+    func fetchUserTransactions(userId: String) async throws -> [Transaction] {
+        let snapshot = try await db.collection("transactions")
+            .whereField("customerId", isEqualTo: userId)
+            .order(by: "timestamp", descending: true)
+            .getDocuments()
+        
+        var transactions: [Transaction] = []
+        
+        for document in snapshot.documents {
+            if let transaction = Transaction.fromDictionary(document.data(), id: document.documentID) {
+                transactions.append(transaction)
+            }
+        }
+        
+        return transactions
     }
     
     // MARK: - API Key Methods
@@ -318,9 +472,18 @@ class FirebaseManager {
     // MARK: - Dashboard Data Methods
     
     func getDashboardData() async throws -> DashboardData {
+        let role = try await verifyUserRole()
+        guard let currentUser = auth.currentUser else {
+            throw FirebaseError.authenticationRequired
+        }
+        
         // For transactions count and volume
-        let transactionsQuery = db.collection("transactions")
+        var transactionsQuery = db.collection("transactions")
             .whereField("environment", isEqualTo: environment.rawValue)
+        
+        if role != "admin" {
+            transactionsQuery = transactionsQuery.whereField("merchantId", isEqualTo: currentUser.uid)
+        }
         
         let transactionsSnapshot = try await transactionsQuery.getDocuments()
         let totalTransactions = transactionsSnapshot.documents.count
@@ -333,8 +496,13 @@ class FirebaseManager {
         }
         
         // For API integrations
-        let integrationsQuery = db.collection("apiKeys")
+        var integrationsQuery = db.collection("apiKeys")
             .whereField("environment", isEqualTo: environment.rawValue)
+        
+        if role != "admin" {
+            integrationsQuery = integrationsQuery.whereField("merchantId", isEqualTo: currentUser.uid)
+        }
+        
         let integrationsSnapshot = try await integrationsQuery.getDocuments()
         let activeIntegrations = integrationsSnapshot.documents.count
         
@@ -345,8 +513,45 @@ class FirebaseManager {
             totalTransactions: totalTransactions,
             transactionVolume: totalVolume,
             revenueAmount: revenueAmount,
-            activeIntegrations: activeIntegrations
+            activeIntegrations: activeIntegrations,
+            transactionChange: calculateChange(oldValue: 0.0, newValue: Double(totalTransactions)),
+            volumeChange: calculateChange(oldValue: 0.0, newValue: totalVolume),
+            revenueChange: calculateChange(oldValue: 0.0, newValue: revenueAmount),
+            integrationChange: calculateChange(oldValue: 0.0, newValue: Double(activeIntegrations))
         )
+    }
+    
+    private func calculateChange(oldValue: Double, newValue: Double) -> Double {
+        guard oldValue != 0 else { return 0 }
+        return ((newValue - oldValue) / oldValue) * 100
+    }
+    
+    func getIntegrations() async throws -> [IntegrationData] {
+        guard let currentUser = auth.currentUser else {
+            throw FirebaseError.authenticationRequired
+        }
+        
+        let role = try await verifyUserRole()
+        
+        var query = db.collection("integrations")
+            .whereField("environment", isEqualTo: environment.rawValue)
+        
+        if role != "admin" {
+            query = query.whereField("merchantId", isEqualTo: currentUser.uid)
+        }
+        
+        let snapshot = try await query.getDocuments()
+        
+        return snapshot.documents.map { document in
+            let data = document.data()
+            return IntegrationData(
+                id: document.documentID,
+                name: data["name"] as? String ?? "",
+                status: IntegrationStatus(rawValue: data["status"] as? String ?? "") ?? .inactive,
+                apiVersion: data["apiVersion"] as? String ?? "v1",
+                lastActive: (data["lastActive"] as? Timestamp)?.dateValue() ?? Date()
+            )
+        }
     }
     
     // MARK: - Batch Operations
@@ -403,6 +608,10 @@ struct DashboardData {
     let transactionVolume: Double
     let revenueAmount: Double
     let activeIntegrations: Int
+    let transactionChange: Double
+    let volumeChange: Double
+    let revenueChange: Double
+    let integrationChange: Double
     
     // Would have more data in a real implementation
 } 

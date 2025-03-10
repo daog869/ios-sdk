@@ -1,33 +1,50 @@
 import SwiftUI
 import SwiftData
+import FirebaseFirestore
 
 struct APIKeysView: View {
-    @State private var keys = [
-        "Production": "pk_live_...",
-        "Test": "pk_test_..."
-    ]
+    @StateObject private var viewModel = APIKeysViewModel()
     @State private var showingAddKey = false
     @State private var showingKeyReveal = false
+    @State private var selectedEnvironment: AppEnvironment = .sandbox
     
     var body: some View {
         List {
-            ForEach(Array(keys.keys.sorted()), id: \.self) { key in
-                VStack(alignment: .leading) {
-                    Text(key)
-                        .font(.headline)
-                    if showingKeyReveal {
-                        Text(keys[key] ?? "")
-                            .font(.system(.body, design: .monospaced))
-                    } else {
-                        Text("••••••••")
+            // Environment Selector
+            Section {
+                Picker("Environment", selection: $selectedEnvironment) {
+                    ForEach(AppEnvironment.allCases, id: \.self) { env in
+                        Text(env.displayName)
+                            .tag(env)
                     }
+                }
+                .pickerStyle(.segmented)
+            }
+            
+            // API Keys List
+            Section {
+                if viewModel.isLoading {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .listRowBackground(Color.clear)
+                } else if let keys = viewModel.apiKeys[selectedEnvironment], !keys.isEmpty {
+                    ForEach(keys) { key in
+                        APIKeyRow(key: key, showingKeyReveal: showingKeyReveal) {
+                            viewModel.revokeKey(key)
+                        }
+                    }
+                } else {
+                    Text("No API keys found for \(selectedEnvironment.displayName)")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .listRowBackground(Color.clear)
                 }
             }
         }
         .navigationTitle("API Keys")
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
-                Button(showingKeyReveal ? "Hide" : "Show") {
+                Button(showingKeyReveal ? "Hide Keys" : "Show Keys") {
                     showingKeyReveal.toggle()
                 }
                 
@@ -38,6 +55,440 @@ struct APIKeysView: View {
                 }
             }
         }
+        .sheet(isPresented: $showingAddKey) {
+            NavigationView {
+                AddAPIKeyView(environment: selectedEnvironment) { name, scopes, expiresAt, ipRestrictions, metadata in
+                    Task {
+                        await viewModel.generateKey(
+                            name: name,
+                            environment: selectedEnvironment,
+                            scopes: scopes,
+                            expiresAt: expiresAt,
+                            ipRestrictions: ipRestrictions,
+                            metadata: metadata
+                        )
+                        showingAddKey = false
+                    }
+                }
+            }
+            .presentationDetents([.large])
+        }
+        .alert("Success", isPresented: $viewModel.showSuccess) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(viewModel.successMessage ?? "")
+        }
+        .task {
+            await viewModel.loadKeys()
+        }
+    }
+}
+
+struct APIKeyRow: View {
+    let key: APIKey
+    let showingKeyReveal: Bool
+    let onRevoke: () -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Key Info
+            HStack {
+                VStack(alignment: .leading) {
+                    Text(key.name)
+                        .font(.headline)
+                    Text(showingKeyReveal ? key.key : maskApiKey(key.key))
+                        .font(.system(.subheadline, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+                
+                Spacer()
+                
+                // Status indicators
+                HStack(spacing: 4) {
+                    // Live/Test indicator
+                    Text(key.isLive ? "Live" : "Test")
+                        .font(.caption)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(key.isLive ? Color.green.opacity(0.1) : Color.orange.opacity(0.1))
+                        .foregroundStyle(key.isLive ? .green : .orange)
+                        .clipShape(Capsule())
+                    
+                    // Active/Revoked indicator
+                    Text(key.active ? "Active" : "Revoked")
+                        .font(.caption)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(key.active ? Color.blue.opacity(0.1) : Color.red.opacity(0.1))
+                        .foregroundStyle(key.active ? .blue : .red)
+                        .clipShape(Capsule())
+                }
+            }
+            
+            // Scopes
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Scopes")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                
+                TagsView(tags: Array(key.scopes)) { scope in
+                    Text(scope.rawValue)
+                        .font(.caption2)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.secondary.opacity(0.1))
+                        .clipShape(Capsule())
+                }
+            }
+            
+            // Restrictions & Expiry
+            if key.ipRestrictions?.isEmpty == false || key.expiresAt != nil {
+                VStack(alignment: .leading, spacing: 4) {
+                    if let ips = key.ipRestrictions, !ips.isEmpty {
+                        Text("IP Restrictions: \(ips.joined(separator: ", "))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    
+                    if let expiresAt = key.expiresAt {
+                        Text("Expires: \(expiresAt.formatted())")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            
+            // Action buttons
+            HStack(spacing: 12) {
+                Button {
+                    UIPasteboard.general.string = key.key
+                } label: {
+                    Label("Copy", systemImage: "doc.on.doc")
+                        .font(.caption)
+                }
+                
+                if key.active {
+                    Button(role: .destructive) {
+                        onRevoke()
+                    } label: {
+                        Label("Revoke", systemImage: "xmark.circle")
+                            .font(.caption)
+                    }
+                }
+                
+                Spacer()
+                
+                Text("Created: \(key.createdAt.formatted(.dateTime.month().day().year()))")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 8)
+    }
+    
+    private func maskApiKey(_ key: String) -> String {
+        guard key.count > 8 else { return key }
+        let prefix = String(key.prefix(4))
+        let suffix = String(key.suffix(4))
+        let maskedPart = String(repeating: "•", count: 8)
+        return prefix + maskedPart + suffix
+    }
+}
+
+struct AddAPIKeyView: View {
+    let environment: AppEnvironment
+    let onSubmit: (String, Set<APIScope>, Date?, [String]?, [String: String]?) -> Void
+    
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var selectedScopes = Set<APIScope>()
+    @State private var expiresAt: Date?
+    @State private var ipRestrictions = ""
+    @State private var metadataKey = ""
+    @State private var metadataValue = ""
+    @State private var metadata: [String: String] = [:]
+    
+    var body: some View {
+        Form {
+            Section {
+                TextField("Key Name", text: $name)
+                    .textContentType(.name)
+                    .autocorrectionDisabled()
+            } header: {
+                Text("Key Details")
+            } footer: {
+                Text("This name will help you identify the key's purpose")
+            }
+            
+            Section {
+                ForEach(APIScope.allCases, id: \.self) { scope in
+                    Toggle(isOn: Binding(
+                        get: { selectedScopes.contains(scope) },
+                        set: { isSelected in
+                            if isSelected {
+                                selectedScopes.insert(scope)
+                            } else {
+                                selectedScopes.remove(scope)
+                            }
+                        }
+                    )) {
+                        VStack(alignment: .leading) {
+                            Text(scope.rawValue.capitalized)
+                                .font(.subheadline)
+                            Text(scope.description)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                
+                Button("Select All") {
+                    selectedScopes = Set(APIScope.allCases)
+                }
+                .disabled(selectedScopes.count == APIScope.allCases.count)
+            } header: {
+                Text("Scopes")
+            }
+            
+            Section {
+                Toggle("Set Expiration", isOn: Binding(
+                    get: { expiresAt != nil },
+                    set: { if $0 { expiresAt = Date().addingTimeInterval(30 * 24 * 3600) } else { expiresAt = nil } }
+                ))
+                
+                if expiresAt != nil {
+                    DatePicker("Expires At", selection: Binding(
+                        get: { expiresAt ?? Date() },
+                        set: { expiresAt = $0 }
+                    ), in: Date()...)
+                }
+                
+                TextField("IP Restrictions (comma-separated)", text: $ipRestrictions)
+                    .textContentType(.none)
+                    .autocorrectionDisabled()
+            } header: {
+                Text("Security")
+            } footer: {
+                Text("Restrict API key usage to specific IP addresses")
+            }
+            
+            Section {
+                HStack {
+                    TextField("Key", text: $metadataKey)
+                        .textContentType(.none)
+                        .autocorrectionDisabled()
+                    
+                    TextField("Value", text: $metadataValue)
+                        .textContentType(.none)
+                        .autocorrectionDisabled()
+                    
+                    Button {
+                        if !metadataKey.isEmpty && !metadataValue.isEmpty {
+                            metadata[metadataKey] = metadataValue
+                            metadataKey = ""
+                            metadataValue = ""
+                        }
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                    }
+                    .disabled(metadataKey.isEmpty || metadataValue.isEmpty)
+                }
+                
+                ForEach(Array(metadata.keys), id: \.self) { key in
+                    HStack {
+                        Text(key)
+                            .font(.subheadline)
+                        Spacer()
+                        Text(metadata[key] ?? "")
+                            .foregroundStyle(.secondary)
+                        Button {
+                            metadata.removeValue(forKey: key)
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.red)
+                        }
+                    }
+                }
+            } header: {
+                Text("Metadata")
+            }
+        }
+        .navigationTitle("New API Key")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") {
+                    dismiss()
+                }
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Generate") {
+                    let ips = ipRestrictions.isEmpty ? nil :
+                        ipRestrictions.components(separatedBy: ",")
+                            .map { $0.trimmingCharacters(in: .whitespaces) }
+                            .filter { !$0.isEmpty }
+                    
+                    onSubmit(
+                        name,
+                        selectedScopes.isEmpty ? Set(APIScope.allCases) : selectedScopes,
+                        expiresAt,
+                        ips,
+                        metadata.isEmpty ? nil : metadata
+                    )
+                }
+                .disabled(name.isEmpty)
+            }
+        }
+    }
+}
+
+// Helper view for tag flow layout
+struct TagsView<Data: RandomAccessCollection, Content: View>: View where Data.Element: Hashable {
+    let tags: Data
+    let spacing: CGFloat
+    let content: (Data.Element) -> Content
+    
+    init(
+        tags: Data,
+        spacing: CGFloat = 4,
+        @ViewBuilder content: @escaping (Data.Element) -> Content
+    ) {
+        self.tags = tags
+        self.spacing = spacing
+        self.content = content
+    }
+    
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            LazyHStack(spacing: spacing) {
+                ForEach(Array(tags.enumerated()), id: \.element) { _, tag in
+                    content(tag)
+                }
+            }
+            .padding(.vertical, 4)
+        }
+        .frame(height: 32)
+    }
+}
+
+extension View {
+    func eraseToAnyView() -> AnyView {
+        AnyView(self)
+    }
+}
+
+@MainActor
+class APIKeysViewModel: ObservableObject {
+    @Published var apiKeys: [AppEnvironment: [APIKey]] = [:]
+    @Published var isLoading = false
+    @Published var showSuccess = false
+    @Published var successMessage: String?
+    
+    private let db = Firestore.firestore()
+    
+    func loadKeys() async {
+        isLoading = true
+        defer { isLoading = false }
+        
+        do {
+            var allKeys: [AppEnvironment: [APIKey]] = [:]
+            
+            // Load sandbox keys
+            let sandboxKeys = try await fetchKeys(for: .sandbox)
+            allKeys[.sandbox] = sandboxKeys
+            
+            // Load production keys
+            let productionKeys = try await fetchKeys(for: .production)
+            allKeys[.production] = productionKeys
+            
+            apiKeys = allKeys
+        } catch {
+            print("Error loading API keys: \(error.localizedDescription)")
+        }
+    }
+    
+    private func fetchKeys(for environment: AppEnvironment) async throws -> [APIKey] {
+        let snapshot = try await db.collection("apiKeys")
+            .whereField("environment", isEqualTo: environment.rawValue)
+            .getDocuments()
+        
+        return snapshot.documents.compactMap { doc -> APIKey? in
+            let data = doc.data()
+            guard let key = data["key"] as? String,
+                  let name = data["name"] as? String,
+                  let merchantId = data["merchantId"] as? String,
+                  let active = data["active"] as? Bool,
+                  let createdAt = (data["createdAt"] as? Timestamp)?.dateValue() else {
+                return nil
+            }
+            
+            return APIKey(
+                id: doc.documentID,
+                key: key,
+                name: name,
+                merchantId: merchantId,
+                active: active,
+                createdAt: createdAt
+            )
+        }
+    }
+    
+    func generateKey(name: String, environment: AppEnvironment, scopes: Set<APIScope>, expiresAt: Date?, ipRestrictions: [String]?, metadata: [String: String]?) async {
+        isLoading = true
+        defer { isLoading = false }
+        
+        do {
+            // Generate a secure random key with environment prefix
+            let keyString = "vz_\(environment == .production ? "live" : "test")_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+            
+            // Create API key document
+            let ref = db.collection("apiKeys").document()
+            let keyData: [String: Any] = [
+                "key": keyString,
+                "name": name,
+                "merchantId": "admin", // Special case for admin-generated keys
+                "active": true,
+                "createdAt": Timestamp(date: Date()),
+                "environment": environment.rawValue,
+                "scopes": Array(scopes),
+                "expiresAt": expiresAt.map { Timestamp(date: $0) },
+                "ipRestrictions": ipRestrictions,
+                "metadata": metadata
+            ]
+            
+            try await ref.setData(keyData)
+            
+            // Refresh the keys list
+            await loadKeys()
+            
+            // Show success message
+            successMessage = "API key generated successfully"
+            showSuccess = true
+        } catch {
+            print("Error generating API key: \(error.localizedDescription)")
+        }
+    }
+    
+    func revokeKey(_ key: APIKey) {
+        Task {
+            do {
+                try await db.collection("apiKeys").document(key.id).updateData([
+                    "active": false
+                ])
+                
+                await loadKeys()
+                
+                successMessage = "API key revoked successfully"
+                showSuccess = true
+            } catch {
+                print("Error revoking API key: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    func showCopiedAlert() {
+        successMessage = "API key copied to clipboard"
+        showSuccess = true
     }
 }
 
@@ -247,6 +698,8 @@ enum ErrorSeverity: String, CaseIterable {
 
 struct SystemStatusView: View {
     @State private var selectedTab = "Status"
+    @State private var showingSignOutConfirmation = false
+    @EnvironmentObject private var authManager: AuthenticationManager
     
     var body: some View {
         VStack(spacing: 0) {
@@ -283,6 +736,24 @@ struct SystemStatusView: View {
             .tabViewStyle(.page(indexDisplayMode: .never))
         }
         .navigationTitle("System")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(action: {
+                    showingSignOutConfirmation = true
+                }) {
+                    Text("Sign Out")
+                        .foregroundColor(.red)
+                }
+            }
+        }
+        .alert("Sign Out", isPresented: $showingSignOutConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Sign Out", role: .destructive) {
+                authManager.signOut()
+            }
+        } message: {
+            Text("Are you sure you want to sign out?")
+        }
     }
 }
 

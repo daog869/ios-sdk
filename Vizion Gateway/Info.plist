@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- ... existing entries ... -->
+    
+    <!-- Push Notification Entitlements -->
+    <key>aps-environment</key>
+    <string>development</string>
+    
+    <!-- Background Modes -->
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>fetch</string>
+        <string>remote-notification</string>
+    </array>
+    
+    <!-- Permission Descriptions -->
+    <key>NSUserNotificationUsageDescription</key>
+    <string>We need to send you notifications about your transactions, security alerts, and important account updates.</string>
+    
+    <key>UIUserNotificationTypeAlert</key>
+    <true/>
+    
+    <key>UIUserNotificationTypeBadge</key>
+    <true/>
+    
+    <key>UIUserNotificationTypeSound</key>
+    <true/>
+</dict>
+</plist> 

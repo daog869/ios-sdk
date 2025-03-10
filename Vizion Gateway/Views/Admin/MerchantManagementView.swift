@@ -1,12 +1,8 @@
 import SwiftUI
 import SwiftData
 
-enum MerchantStatus: String {
-    case active = "Active"
-    case pending = "Pending"
-    case suspended = "Suspended"
-    case terminated = "Terminated"
-    
+// Using MerchantStatus from Models.swift
+extension MerchantStatus {
     var color: Color {
         switch self {
         case .active: return .green
@@ -18,10 +14,32 @@ enum MerchantStatus: String {
 }
 
 struct MerchantManagementView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Query private var merchants: [Merchant]
+    
     @State private var searchText = ""
     @State private var selectedMerchant: Merchant?
     @State private var showingAddMerchant = false
     @State private var selectedTab = "Active"
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+    
+    // Filter merchants based on search text and selected tab
+    private var filteredMerchants: [Merchant] {
+        merchants.filter { merchant in
+            // Filter by status tab
+            guard merchant.status.rawValue.lowercased() == selectedTab.lowercased() else { return false }
+            
+            // Filter by search text
+            if searchText.isEmpty {
+                return true
+            }
+            
+            return merchant.name.localizedCaseInsensitiveContains(searchText) ||
+                   merchant.contactEmail.localizedCaseInsensitiveContains(searchText) ||
+                   merchant.id.localizedCaseInsensitiveContains(searchText)
+        }
+    }
     
     var body: some View {
         NavigationView {
@@ -29,7 +47,8 @@ struct MerchantManagementView: View {
                 searchText: $searchText,
                 selectedMerchant: $selectedMerchant,
                 showingAddMerchant: $showingAddMerchant,
-                selectedTab: $selectedTab
+                selectedTab: $selectedTab,
+                filteredMerchants: filteredMerchants
             )
             .searchable(text: $searchText, prompt: "Search merchants...")
             .navigationTitle("Merchants")
@@ -44,15 +63,64 @@ struct MerchantManagementView: View {
                 }
             }
             .sheet(isPresented: $showingAddMerchant) {
-                MerchantOnboardingView()
-                    .presentationDragIndicator(.visible)
+                MerchantOnboardingView(onMerchantCreated: { merchant in
+                    // Add the new merchant to the model context
+                    modelContext.insert(merchant)
+                })
+                .presentationDragIndicator(.visible)
             }
             .sheet(item: $selectedMerchant) { merchant in
-                MerchantDetailView(merchant: merchant)
+                MerchantDetailSummaryView(merchant: merchant)
                     .presentationDragIndicator(.visible)
+            }
+            .overlay {
+                if isLoading {
+                    ProgressView()
+                        .scaleEffect(1.5)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color.black.opacity(0.2))
+                }
+            }
+            .alert(errorMessage ?? "An error occurred", isPresented: .constant(errorMessage != nil)) {
+                Button("OK") {
+                    errorMessage = nil
+                }
             }
         }
         .navigationViewStyle(.stack)
+        .onAppear {
+            loadMerchants()
+        }
+    }
+    
+    private func loadMerchants() {
+        isLoading = true
+        
+        Task {
+            do {
+                let fetchedMerchants = try await MerchantManager.shared.getMerchants()
+                
+                // Update SwiftData with the fetched merchants
+                await MainActor.run {
+                    // Remove existing merchants
+                    for existingMerchant in merchants {
+                        modelContext.delete(existingMerchant)
+                    }
+                    
+                    // Insert new merchants
+                    for merchant in fetchedMerchants {
+                        modelContext.insert(merchant)
+                    }
+                    
+                    isLoading = false
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = "Failed to load merchants: \(error.localizedDescription)"
+                    isLoading = false
+                }
+            }
+        }
     }
 }
 
@@ -62,11 +130,12 @@ struct MerchantContentView: View {
     @Binding var selectedMerchant: Merchant?
     @Binding var showingAddMerchant: Bool
     @Binding var selectedTab: String
+    let filteredMerchants: [Merchant]
     
     var body: some View {
         VStack(spacing: 0) {
             // Merchant Overview Cards
-            MerchantOverviewCardsView()
+            MerchantOverviewCardsView(merchants: filteredMerchants)
             
             // Merchant Status Tabs
             Picker("Status", selection: $selectedTab) {
@@ -78,7 +147,7 @@ struct MerchantContentView: View {
             .padding()
             
             // Merchant List
-            MerchantListView(selectedMerchant: $selectedMerchant)
+            MerchantListSummaryView(merchants: filteredMerchants, selectedMerchant: $selectedMerchant)
         }
         .ignoresSafeArea(edges: .horizontal)
     }
@@ -86,26 +155,47 @@ struct MerchantContentView: View {
 
 // Extract the overview cards to a separate view
 struct MerchantOverviewCardsView: View {
+    let merchants: [Merchant]
+    
+    private var totalMerchants: Int {
+        merchants.count
+    }
+    
+    private var pendingApproval: Int {
+        merchants.filter { $0.status == .pending }.count
+    }
+    
+    private var processingVolume: String {
+        // Calculate total based on transactionFeePercentage as a proxy for volume
+        let total = merchants.reduce(Decimal(0)) { sum, merchant in
+            sum + (merchant.transactionFeePercentage * 10000) // Using fee as a proxy for volume
+        }
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = "XCD"
+        return formatter.string(from: NSDecimalNumber(decimal: total)) ?? "$0"
+    }
+    
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 16) {
                 MetricCard(
                     title: "Total Merchants",
-                    value: "12",
+                    value: "\(totalMerchants)",
                     icon: "building.2.fill",
                     color: .blue
                 )
                 
                 MetricCard(
                     title: "Pending Approval",
-                    value: "3",
+                    value: "\(pendingApproval)",
                     icon: "clock.fill",
                     color: .orange
                 )
                 
                 MetricCard(
                     title: "Processing Volume",
-                    value: "$45,678",
+                    value: processingVolume,
                     icon: "chart.line.uptrend.xyaxis.fill",
                     color: .green
                 )
@@ -116,61 +206,85 @@ struct MerchantOverviewCardsView: View {
 }
 
 // Extract the merchant list to a separate view
-struct MerchantListView: View {
+struct MerchantListSummaryView: View {
+    let merchants: [Merchant]
     @Binding var selectedMerchant: Merchant?
     
     var body: some View {
         List {
-            ForEach(0..<10) { index in
-                MerchantRow()
+            ForEach(merchants) { merchant in
+                MerchantRow(merchant: merchant)
                     .onTapGesture {
-                        // Create a sample merchant with all required parameters
-                        selectedMerchant = Merchant(
-                            id: "M\(10000 + index)",
-                            name: "Sample Merchant \(index + 1)",
-                            businessType: "Retail",
-                            contactEmail: "contact\(index + 1)@example.com",
-                            contactPhone: "+1 869-123-\(4500 + index)",
-                            address: "\(index + 1) Main Street, Basseterre",
-                            taxId: "TAX\(10000 + index)",
-                            status: "Active",
-                            createdAt: Date()
-                        )
+                        selectedMerchant = merchant
                     }
             }
         }
         .listStyle(.plain)
+        .overlay {
+            if merchants.isEmpty {
+                ContentUnavailableView(
+                    "No Merchants Found",
+                    systemImage: "building.2",
+                    description: Text("Try adjusting your filters or add a new merchant")
+                )
+            }
+        }
     }
 }
 
 struct MerchantRow: View {
+    let merchant: Merchant
+    
+    var formattedVolume: String {
+        // Using transactionFeePercentage as a proxy for volume
+        let volume = merchant.transactionFeePercentage * 10000 // Example calculation
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = "XCD"
+        return formatter.string(from: NSDecimalNumber(decimal: volume)) ?? "$0"
+    }
+    
+    var statusColor: Color {
+        merchant.status.color
+    }
+    
+    var timeAgo: String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: merchant.createdAt, relativeTo: Date())
+    }
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Merchant Name")
+                Text(merchant.name)
                     .font(.headline)
                 Spacer()
-                Text("Active")
+                Text(merchant.status.rawValue)
                     .font(.caption)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(.green.opacity(0.2))
-                    .foregroundStyle(.green)
+                    .background(statusColor.opacity(0.2))
+                    .foregroundStyle(statusColor)
                     .clipShape(Capsule())
             }
             
             HStack {
-                Label("ID: M12345", systemImage: "number")
+                Label("ID: \(merchant.id.prefix(8))", systemImage: "number")
                 Spacer()
-                Label("Volume: $12,345", systemImage: "chart.line.uptrend.xyaxis")
+                Label("Volume: \(formattedVolume)", systemImage: "chart.line.uptrend.xyaxis")
             }
             .font(.caption)
             .foregroundStyle(.secondary)
             
             HStack {
-                Label("St. Kitts", systemImage: "mappin")
+                if let address = merchant.address {
+                    Label(address.components(separatedBy: ",").first ?? address, systemImage: "mappin")
+                } else {
+                    Label("No Address", systemImage: "mappin")
+                }
                 Spacer()
-                Label("Last active: 2h ago", systemImage: "clock")
+                Label("Created: \(timeAgo)", systemImage: "clock")
             }
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -179,36 +293,54 @@ struct MerchantRow: View {
     }
 }
 
-struct MerchantDetailView: View {
-    let merchant: Merchant
+struct MerchantDetailSummaryView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+    @State private var isLoading = false
+    @State private var showingConfirmation = false
+    @State private var errorMessage: String?
+    @State private var actionType: MerchantAction = .suspend
+
+    let merchant: Merchant
+    
+    enum MerchantAction {
+        case suspend, activate, delete
+    }
+    
+    // Helper function to parse country from address
+    private func getCountryFromAddress() -> String {
+        guard let address = merchant.address else { return "N/A" }
+        let components = address.components(separatedBy: ",")
+        guard let lastComponent = components.last else { return "N/A" }
+        return lastComponent.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
     
     var body: some View {
         NavigationView {
             List {
                 Section("Business Information") {
-                    LabeledContent("Business Name", value: "Sample Business")
-                    LabeledContent("Registration No.", value: "REG123456")
-                    LabeledContent("Business Type", value: "Retail")
-                    LabeledContent("Country", value: "St. Kitts")
+                    LabeledContent("Business Name", value: merchant.name)
+                    LabeledContent("Registration No.", value: merchant.taxId ?? "N/A")
+                    LabeledContent("Business Type", value: merchant.businessType)
+                    LabeledContent("Country", value: getCountryFromAddress())
                 }
                 
                 Section("Contact Information") {
-                    LabeledContent("Email", value: "contact@sample.com")
-                    LabeledContent("Phone", value: "+1 869-123-4567")
-                    LabeledContent("Address", value: "123 Main St, Basseterre")
+                    LabeledContent("Email", value: merchant.contactEmail)
+                    LabeledContent("Phone", value: merchant.contactPhone ?? "N/A")
+                    LabeledContent("Address", value: merchant.address ?? "N/A")
                 }
                 
                 Section("Processing") {
-                    LabeledContent("Status", value: "Active")
-                    LabeledContent("Processing Volume", value: "$12,345")
-                    LabeledContent("Transaction Limit", value: "$5,000")
-                    LabeledContent("Processing Fee", value: "1.5%")
+                    LabeledContent("Status", value: merchant.status.rawValue)
+                    LabeledContent("Processing Fee", value: "\(merchant.transactionFeePercentage * 100)%")
+                    LabeledContent("Settlement Period", value: "\(merchant.settlementPeriod) day(s)")
+                    LabeledContent("Flat Fee", value: "\(merchant.flatFeeCents) cents")
                 }
                 
                 Section("Integration") {
                     NavigationLink("API Keys") {
-                        Text("API Keys")
+                        MerchantAPIKeysView(merchant: merchant)
                     }
                     
                     NavigationLink("Webhooks") {
@@ -216,16 +348,26 @@ struct MerchantDetailView: View {
                     }
                     
                     NavigationLink("Transaction History") {
-                        Text("Transaction History")
+                        MerchantTransactionsView(merchantId: merchant.id)
                     }
                 }
                 
                 Section {
-                    Button("Suspend Merchant") {
-                        // Implement suspension
+                    if merchant.status == .active {
+                        Button("Suspend Merchant") {
+                            actionType = .suspend
+                            showingConfirmation = true
+                        }
+                        .frame(maxWidth: .infinity)
+                        .foregroundStyle(.red)
+                    } else if merchant.status == .suspended {
+                        Button("Activate Merchant") {
+                            actionType = .activate
+                            showingConfirmation = true
+                        }
+                        .frame(maxWidth: .infinity)
+                        .foregroundStyle(.green)
                     }
-                    .frame(maxWidth: .infinity)
-                    .foregroundStyle(.red)
                 }
             }
             .navigationTitle("Merchant Details")
@@ -235,6 +377,68 @@ struct MerchantDetailView: View {
                     Button("Done") {
                         dismiss()
                     }
+                }
+            }
+            .overlay {
+                if isLoading {
+                    ProgressView()
+                        .scaleEffect(1.5)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color.black.opacity(0.2))
+                }
+            }
+            .alert(errorMessage ?? "An error occurred", isPresented: .constant(errorMessage != nil)) {
+                Button("OK") {
+                    errorMessage = nil
+                }
+            }
+            .confirmationDialog(
+                actionType == .suspend ? "Suspend Merchant" : "Activate Merchant",
+                isPresented: $showingConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button(actionType == .suspend ? "Suspend" : "Activate", role: actionType == .suspend ? .destructive : .none) {
+                    performMerchantAction()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(actionType == .suspend 
+                     ? "Are you sure you want to suspend this merchant? They will no longer be able to process payments." 
+                     : "Are you sure you want to activate this merchant? They will be able to process payments again.")
+            }
+        }
+    }
+    
+    private func performMerchantAction() {
+        isLoading = true
+        
+        Task {
+            do {
+                switch actionType {
+                case .suspend:
+                    try await MerchantManager.shared.suspendMerchant(id: merchant.id)
+                    
+                    await MainActor.run {
+                        merchant.status = .suspended
+                        try? modelContext.save()
+                        isLoading = false
+                    }
+                case .activate:
+                    try await MerchantManager.shared.activateMerchant(id: merchant.id)
+                    
+                    await MainActor.run {
+                        merchant.status = .active
+                        try? modelContext.save()
+                        isLoading = false
+                    }
+                case .delete:
+                    // Not implemented in this example
+                    isLoading = false
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = "Failed to \(actionType == .suspend ? "suspend" : "activate") merchant: \(error.localizedDescription)"
+                    isLoading = false
                 }
             }
         }
@@ -250,6 +454,10 @@ struct MerchantOnboardingView: View {
     @State private var phone = ""
     @State private var address = ""
     @State private var currentStep = 1
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+    
+    let onMerchantCreated: (Merchant) -> Void
     
     var body: some View {
         NavigationView {
@@ -309,10 +517,10 @@ struct MerchantOnboardingView: View {
                         
                         Section {
                             Button("Submit Application") {
-                                // Submit merchant application
-                                dismiss()
+                                submitMerchantApplication()
                             }
                             .frame(maxWidth: .infinity)
+                            .disabled(isLoading)
                         }
                     }
                     .tag(3)
@@ -327,6 +535,7 @@ struct MerchantOnboardingView: View {
                                 currentStep -= 1
                             }
                         }
+                        .disabled(isLoading)
                     }
                     
                     Spacer()
@@ -337,6 +546,7 @@ struct MerchantOnboardingView: View {
                                 currentStep += 1
                             }
                         }
+                        .disabled(isLoading)
                     }
                 }
                 .padding()
@@ -348,9 +558,95 @@ struct MerchantOnboardingView: View {
                     Button("Cancel") {
                         dismiss()
                     }
+                    .disabled(isLoading)
+                }
+            }
+            .overlay {
+                if isLoading {
+                    ProgressView()
+                        .scaleEffect(1.5)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color.black.opacity(0.2))
+                }
+            }
+            .alert(errorMessage ?? "An error occurred", isPresented: .constant(errorMessage != nil)) {
+                Button("OK") {
+                    errorMessage = nil
                 }
             }
         }
+    }
+    
+    private func submitMerchantApplication() {
+        guard !businessName.isEmpty, !email.isEmpty else {
+            errorMessage = "Business name and email are required."
+            return
+        }
+        
+        isLoading = true
+        
+        Task {
+            do {
+                let result = try await MerchantManager.shared.onboardMerchant(
+                    name: businessName,
+                    businessType: businessType,
+                    contactEmail: email,
+                    contactPhone: phone.isEmpty ? nil : phone,
+                    address: address.isEmpty ? nil : address,
+                    taxId: registrationNumber.isEmpty ? nil : registrationNumber
+                )
+                
+                // MerchantOnboardingResult is a dictionary [String: String]
+                guard let merchantId = result["merchantId"],
+                      let merchantName = result["merchantName"],
+                      let statusString = result["status"],
+                      let status = MerchantStatus(rawValue: statusString) else {
+                    throw NSError(domain: "MerchantError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid merchant data returned"])
+                }
+                
+                // Create a local merchant object
+                let merchant = Merchant(
+                    id: merchantId,
+                    name: merchantName,
+                    businessType: businessType,
+                    contactEmail: email,
+                    contactPhone: phone.isEmpty ? nil : phone,
+                    address: address.isEmpty ? nil : address,
+                    island: .stKitts,
+                    taxId: registrationNumber.isEmpty ? nil : registrationNumber,
+                    status: status,
+                    createdAt: Date()
+                )
+                
+                await MainActor.run {
+                    onMerchantCreated(merchant)
+                    isLoading = false
+                    dismiss()
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = "Failed to create merchant: \(error.localizedDescription)"
+                    isLoading = false
+                }
+            }
+        }
+    }
+}
+
+// Placeholder views
+struct MerchantAPIKeysView: View {
+    let merchant: Merchant
+    
+    var body: some View {
+        Text("API Keys for \(merchant.name)")
+    }
+}
+
+struct MerchantTransactionsView: View {
+    let merchantId: String
+    
+    var body: some View {
+        Text("Transactions for Merchant ID: \(merchantId)")
     }
 }
 
