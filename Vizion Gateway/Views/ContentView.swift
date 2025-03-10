@@ -12,7 +12,7 @@ import FirebaseFirestore
 
 struct ContentView: View {
     @ObservedObject private var authManager = AuthorizationManager.shared
-    @State private var showingError: AppError?
+    @State private var showingError: VizionAppError?
     @State private var showAuthDebugger = false
     @Environment(\.colorScheme) var colorScheme
     
@@ -32,7 +32,7 @@ struct ContentView: View {
         .withErrorHandling($showingError)
         .onChange(of: authManager.errorMessage) { _, newMessage in
             if let message = newMessage {
-                showingError = .authenticationError(message)
+                showingError = .authError(message)
             }
         }
         .overlay(alignment: .bottomTrailing) {
@@ -261,35 +261,38 @@ struct AdminDetailView: View {
     let selection: String?
     
     var body: some View {
-        Group {
-            switch selection {
-            case "Dashboard":
-                DashboardView()
-            case "Transactions":
-                TransactionsView()
-            case "Merchants":
-                MerchantManagementView()
-            case "Users":
-                UserManagementView()
-            case "Analytics":
-                RevenueAnalyticsView()
-            case "Verifications":
-                VerificationManagementView()
-            case "API Keys":
-                APIKeysView()
-            case "Webhooks":
-                WebhookConfigurationView()
-            case "API Docs":
-                APIDocumentationView()
-            case "SDK Guides":
-                SDKGuideView()
-            case "Test Tools":
-                TestTransactionView()
-            case "API Logs":
-                APILogsView()
-            default:
-                DashboardView()
-            }
+        contentView(for: selection)
+    }
+    
+    @ViewBuilder
+    private func contentView(for selection: String?) -> some View {
+        switch selection {
+        case "Dashboard":
+            DashboardView()
+        case "Transactions":
+            TransactionsView()
+        case "Merchants":
+            MerchantManagementView()
+        case "Users":
+            UserManagementView()
+        case "Analytics":
+            RevenueAnalyticsView()
+        case "Verifications":
+            VerificationManagementView()
+        case "API Keys":
+            APIKeysView()
+        case "Webhooks":
+            WebhookAdminView()
+        case "API Docs":
+            APIDocumentationView()
+        case "SDK Guides":
+            SDKGuideView()
+        case "Test Tools":
+            TestTransactionView()
+        case "API Logs":
+            APILogsView()
+        default:
+            DashboardView()
         }
     }
 }
@@ -299,7 +302,7 @@ struct CustomerTransactionsView: View {
     @ObservedObject private var authManager = AuthorizationManager.shared
     @State private var transactions: [Transaction] = []
     @State private var isLoading = true
-    @State private var errorMessage: AppError?
+    @State private var errorMessage: VizionAppError?
     
     var body: some View {
         NavigationView {
@@ -314,7 +317,7 @@ struct CustomerTransactionsView: View {
                             .foregroundColor(.blue.opacity(0.7))
                         
                         Text("No Transactions")
-                                .font(.title2)
+                            .font(.title2)
                             .fontWeight(.semibold)
                         
                         Text("You haven't made any transactions yet.")
@@ -376,7 +379,7 @@ struct CustomerTransactionsView: View {
             }
         } catch {
             await MainActor.run {
-                self.errorMessage = AppError.from(error)
+                self.errorMessage = VizionAppError.from(error)
                 self.isLoading = false
             }
         }

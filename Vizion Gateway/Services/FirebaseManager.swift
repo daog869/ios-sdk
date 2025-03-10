@@ -543,8 +543,8 @@ class FirebaseManager {
         // Also remove from SwiftData if present
         if let modelContext = modelContext {
             let descriptor = FetchDescriptor<APIKey>(
-                predicate: #Predicate<APIKey> { key in
-                    key.id == keyId
+                predicate: #Predicate<APIKey> { apiKey in
+                    apiKey.id == keyId
                 }
             )
             if let keyToDelete = try? modelContext.fetch(descriptor).first {

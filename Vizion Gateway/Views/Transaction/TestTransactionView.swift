@@ -342,8 +342,10 @@ class TestTransactionViewModel: ObservableObject {
     
     func createTestTransaction() async {
         guard let amountDecimal = Decimal(string: amount) else {
-            errorMessage = "Invalid amount format"
-            showError = true
+            await MainActor.run {
+                self.errorMessage = "Invalid amount format"
+                self.showError = true
+            }
             return
         }
         

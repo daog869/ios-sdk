@@ -3,6 +3,8 @@ import SwiftData
 import PassKit
 import Foundation
 import FirebaseAuth
+// Import custom views
+import Vizion_Gateway
 
 // MARK: - Main View
 
@@ -38,7 +40,7 @@ struct DeveloperPortalView: View {
             // Tab Selector
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 20) {
-                    ForEach(["API Keys", "Quick Start", "Webhooks", "Testing"], id: \.self) { tab in
+                    ForEach(["API Keys", "Applications", "Documentation", "Quick Start", "Webhooks", "Testing"], id: \.self) { tab in
                         Button {
                             selectedTab = tab
                         } label: {
@@ -115,6 +117,14 @@ struct DeveloperPortalView: View {
                     .padding(.vertical)
                 }
                 .tag("API Keys")
+                
+                // Applications Tab
+                ApplicationsView()
+                    .tag("Applications")
+                
+                // Documentation Tab
+                SDKDocumentationView()
+                    .tag("Documentation")
                 
                 // Quick Start Tab
                 ScrollView {
@@ -847,29 +857,6 @@ struct WebhookGuideView: View {
 }
 
 // Additional Views
-
-struct WebhookConfigurationView: View {
-    @State private var webhooks: [WebhookEndpoint] = []
-    @State private var showingAddWebhook = false
-    
-    var body: some View {
-        List {
-            ForEach(webhooks) { webhook in
-                WebhookEndpointRow(webhook: webhook)
-            }
-        }
-        .navigationTitle("Webhooks")
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    showingAddWebhook = true
-                } label: {
-                    Image(systemName: "plus")
-                }
-            }
-        }
-    }
-}
 
 struct WebhookEndpointRow: View {
     let webhook: WebhookEndpoint

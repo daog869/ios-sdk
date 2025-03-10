@@ -36,11 +36,9 @@ struct FraudDetectionView: View {
                 })
                 
                 // Transaction List
-                TransactionListView(
+                FraudTransactionListView(
                     transactions: filteredTransactions,
-                    calculateRiskLevel: { transaction in
-                        calculateRiskLevel(for: transaction)
-                    }
+                    calculateRiskLevel: calculateRiskLevel
                 )
             }
             .ignoresSafeArea(edges: .horizontal)
@@ -192,7 +190,7 @@ struct FraudOverviewCardsView: View {
 }
 
 // Extracted Transaction List View
-struct TransactionListView: View {
+struct FraudTransactionListView: View {
     let transactions: [Transaction]
     let calculateRiskLevel: (Transaction) -> RiskLevel
     
