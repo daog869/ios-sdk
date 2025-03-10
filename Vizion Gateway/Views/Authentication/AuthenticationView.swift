@@ -463,7 +463,6 @@ struct TransactionListRow: View {
     }
 }
 
-// Rename TransactionDetailView to avoid redeclaration
 struct AuthTransactionDetailView: View {
     let transaction: Transaction
     
@@ -490,7 +489,7 @@ struct AuthTransactionDetailView: View {
                 }
                 .frame(maxWidth: .infinity)
                 
-                // Transaction Details - Fix the GroupBox label argument
+                // Transaction Details
                 GroupBox {
                     VStack(spacing: 15) {
                         TransactionDetailRow(label: "Transaction ID", value: transaction.id)
@@ -499,11 +498,67 @@ struct AuthTransactionDetailView: View {
                         if let description = transaction.transactionDescription {
                             TransactionDetailRow(label: "Description", value: description)
                         }
-                        TransactionDetailRow(label: "Merchant", value: transaction.merchantName)
                     }
                     .padding(.vertical, 8)
                 } label: {
                     Label("Transaction Details", systemImage: "info.circle")
+                        .font(.headline)
+                }
+                
+                // Parties
+                GroupBox {
+                    VStack(spacing: 12) {
+                        // Merchant
+                        HStack(spacing: 16) {
+                            ProfilePhotoView(
+                                imageURL: nil, // TODO: Add merchant profile image URL
+                                initials: getMerchantInitials(),
+                                size: 40
+                            )
+                            
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(transaction.merchantName)
+                                    .font(.headline)
+                                Text("Merchant")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Text("ID: \(transaction.merchantId)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                        
+                        if let customerName = transaction.customerName {
+                            Divider()
+                            
+                            // Customer
+                            HStack(spacing: 16) {
+                                ProfilePhotoView(
+                                    imageURL: nil, // TODO: Add customer profile image URL
+                                    initials: getCustomerInitials(customerName),
+                                    size: 40
+                                )
+                                
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(customerName)
+                                        .font(.headline)
+                                    Text("Customer")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    if let customerId = transaction.customerId {
+                                        Text("ID: \(customerId)")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                } label: {
+                    Label("Parties", systemImage: "person.2")
                         .font(.headline)
                 }
                 
@@ -545,9 +600,20 @@ struct AuthTransactionDetailView: View {
             return .blue
         }
     }
+    
+    private func getMerchantInitials() -> String {
+        let words = transaction.merchantName.components(separatedBy: .whitespaces)
+        let initials = words.prefix(2).compactMap { $0.first?.uppercased() }.joined()
+        return initials.isEmpty ? "M" : initials
+    }
+    
+    private func getCustomerInitials(_ name: String) -> String {
+        let words = name.components(separatedBy: .whitespaces)
+        let initials = words.prefix(2).compactMap { $0.first?.uppercased() }.joined()
+        return initials.isEmpty ? "C" : initials
+    }
 }
 
-// Rename DetailRow to avoid redeclaration
 struct TransactionDetailRow: View {
     let label: String
     let value: String

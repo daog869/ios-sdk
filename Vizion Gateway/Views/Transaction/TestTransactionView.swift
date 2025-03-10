@@ -314,12 +314,17 @@ class TestTransactionViewModel: ObservableObject {
                 
                 let apiKey = APIKey(
                     id: document.documentID,
-                    key: key,
                     name: name,
-                    merchantId: merchantId,
-                    active: active,
+                    key: key,
+                    createdAt: createdAt,
+                    environment: AppEnvironment(rawValue: UserDefaults.standard.string(forKey: "environment") ?? "sandbox") ?? .sandbox,
+                    lastUsed: nil,
                     scopes: scopes,
-                    createdAt: createdAt
+                    active: active,
+                    merchantId: merchantId,
+                    expiresAt: nil,
+                    ipRestrictions: nil,
+                    metadata: nil
                 )
                 keys.append(apiKey)
             }

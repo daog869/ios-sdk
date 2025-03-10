@@ -83,16 +83,56 @@ struct TransactionDetailView: View {
             
             // Customer & Merchant Information
             Section("Parties") {
-                DetailRow(key: "Merchant", value: transaction.merchantName)
-                DetailRow(key: "Merchant ID", value: transaction.merchantId)
-                
-                if let customerName = transaction.customerName {
-                    DetailRow(key: "Customer", value: customerName)
+                VStack(spacing: 12) {
+                    // Merchant
+                    HStack(spacing: 16) {
+                        ProfilePhotoView(
+                            imageURL: nil, // TODO: Add merchant profile image URL
+                            initials: getMerchantInitials(),
+                            size: 40
+                        )
+                        
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(transaction.merchantName)
+                                .font(.headline)
+                            Text("Merchant")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text("ID: \(transaction.merchantId)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    
+                    if let customerName = transaction.customerName {
+                        Divider()
+                        
+                        // Customer
+                        HStack(spacing: 16) {
+                            ProfilePhotoView(
+                                imageURL: nil, // TODO: Add customer profile image URL
+                                initials: getCustomerInitials(customerName),
+                                size: 40
+                            )
+                            
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(customerName)
+                                    .font(.headline)
+                                Text("Customer")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                if let customerId = transaction.customerId {
+                                    Text("ID: \(customerId)")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
                 }
-                
-                if let customerId = transaction.customerId {
-                    DetailRow(key: "Customer ID", value: customerId)
-                }
+                .padding(.vertical, 4)
             }
             
             // Processing Information
@@ -303,6 +343,18 @@ struct TransactionDetailView: View {
         updatedTransaction.status = .cancelled
         
         try await FirebaseManager.shared.updateTransaction(updatedTransaction)
+    }
+    
+    private func getMerchantInitials() -> String {
+        let words = transaction.merchantName.components(separatedBy: .whitespaces)
+        let initials = words.prefix(2).compactMap { $0.first?.uppercased() }.joined()
+        return initials.isEmpty ? "M" : initials
+    }
+    
+    private func getCustomerInitials(_ name: String) -> String {
+        let words = name.components(separatedBy: .whitespaces)
+        let initials = words.prefix(2).compactMap { $0.first?.uppercased() }.joined()
+        return initials.isEmpty ? "C" : initials
     }
 }
 

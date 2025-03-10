@@ -13,6 +13,11 @@ struct UserProfileView: View {
     @State private var errorMessage: AppError?
     @State private var showChangePasswordSheet = false
     @State private var showDeleteAccountConfirmation = false
+    @State private var showingVerificationView = false
+    @State private var profileImageURL: String?
+    @State private var isUpdating = false
+    @State private var updateMessage: String?
+    @State private var showUpdateMessage = false
     
     init(user: User) {
         self.user = user
@@ -21,6 +26,7 @@ struct UserProfileView: View {
         _lastName = State(initialValue: user.lastName)
         _email = State(initialValue: user.email)
         _phone = State(initialValue: user.phone ?? "")
+        _profileImageURL = State(initialValue: user.profileImageURL)
     }
     
     var body: some View {
@@ -28,15 +34,18 @@ struct UserProfileView: View {
             // Profile header with avatar
             Section {
                 HStack(spacing: 16) {
-                    // User avatar
-                    ZStack {
-                        Circle()
-                            .fill(Color.blue.opacity(0.2))
-                            .frame(width: 80, height: 80)
-                        
-                        Text(initials)
-                            .font(.system(size: 32, weight: .bold))
-                            .foregroundColor(.blue)
+                    // User avatar with profile image picker
+                    ProfileImagePicker(
+                        profileImageURL: $profileImageURL,
+                        userId: user.id,
+                        size: 80,
+                        initials: initials
+                    )
+                    .onImageUploaded { url in
+                        // Update user object
+                        Task {
+                            await updateProfileImage(url: url)
+                        }
                     }
                     
                     VStack(alignment: .leading, spacing: 4) {
@@ -79,6 +88,23 @@ struct UserProfileView: View {
                     ProfileRow(key: "Email", value: user.email)
                     ProfileRow(key: "Phone", value: user.phone ?? "Not provided")
                 }
+                
+                // Save profile button
+                Button(action: {
+                    Task {
+                        await updateProfile()
+                    }
+                }) {
+                    if isUpdating {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                    } else {
+                        Text("Save Profile")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isUpdating)
             }
             
             // Account information
@@ -165,29 +191,34 @@ struct UserProfileView: View {
                     .background(Color.black.opacity(0.2))
             }
         }
+        .alert(updateMessage ?? "", isPresented: $showUpdateMessage) {
+            Button("OK") { }
+        }
         .sheet(isPresented: $showChangePasswordSheet) {
             ChangePasswordView()
         }
-        .withErrorHandling($errorMessage)
+        .sheet(isPresented: $showingVerificationView) {
+            IdentityVerificationView()
+        }
         .confirmationDialog(
-            "Delete Account",
+            "Are you sure you want to delete your account?",
             isPresented: $showDeleteAccountConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Delete", role: .destructive) {
+            Button("Delete Account", role: .destructive) {
                 deleteAccount()
             }
-            Button("Cancel", role: .cancel) {}
+            Button("Cancel", role: .cancel) { }
         } message: {
-            Text("Are you sure you want to delete your account? This action cannot be undone.")
+            Text("This action cannot be undone. All your data will be permanently removed.")
         }
     }
     
     // MARK: - Helper Properties
     
     private var initials: String {
-        let firstInitial = user.firstName.first?.uppercased() ?? ""
-        let lastInitial = user.lastName.first?.uppercased() ?? ""
+        let firstInitial = firstName.first?.uppercased() ?? ""
+        let lastInitial = lastName.first?.uppercased() ?? ""
         return "\(firstInitial)\(lastInitial)"
     }
     
@@ -312,7 +343,54 @@ struct UserProfileView: View {
     
     // Actions
     private func signOut() {
-        AuthorizationManager.shared.signOut()
+        Task {
+            await AuthorizationManager.shared.signOut()
+        }
+    }
+    
+    private func updateProfile() async {
+        isUpdating = true
+        
+        do {
+            // Update user in Firestore
+            var updatedUser = user
+            updatedUser.firstName = firstName
+            updatedUser.lastName = lastName
+            updatedUser.phone = phone
+            
+            try await FirebaseManager.shared.updateUser(updatedUser)
+            
+            // Update success message
+            updateMessage = "Profile updated successfully"
+            showUpdateMessage = true
+        } catch {
+            // Show error message
+            updateMessage = "Failed to update profile: \(error.localizedDescription)"
+            showUpdateMessage = true
+        }
+        
+        isUpdating = false
+    }
+    
+    private func updateProfileImage(url: String) async {
+        do {
+            // Update user in Firestore with the new profile image URL
+            var updatedUser = user
+            updatedUser.profileImageURL = url
+            
+            try await FirebaseManager.shared.updateUser(updatedUser)
+            
+            // Update local state
+            profileImageURL = url
+            
+            // Update success message
+            updateMessage = "Profile image updated successfully"
+            showUpdateMessage = true
+        } catch {
+            // Show error message
+            updateMessage = "Failed to update profile image: \(error.localizedDescription)"
+            showUpdateMessage = true
+        }
     }
 }
 

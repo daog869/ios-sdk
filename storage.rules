@@ -5,10 +5,42 @@ rules_version = '2';
 //    /databases/(default)/documents/users/$(request.auth.uid)).data.isAdmin;
 service firebase.storage {
   match /b/{bucket}/o {
+    // Allow access to user profile images
+    match /{env}/profiles/{userId}/{fileName} {
+      allow read: if true;  // Anyone can view profile images
+      allow write: if request.auth != null && 
+                  request.auth.uid == userId &&  // User can only upload their own profile
+                  request.resource.size < 5 * 1024 * 1024 && // 5MB max
+                  request.resource.contentType.matches('image/.*'); // Must be an image
+    }
+    
+    // Allow access to KYC documents
+    match /kyc/{userId}/{fileName} {
+      allow read: if request.auth != null && 
+                 (request.auth.uid == userId || 
+                  request.auth.token.role == 'admin');
+      allow write: if request.auth != null && 
+                  request.auth.uid == userId &&
+                  request.resource.size < 10 * 1024 * 1024 && // 10MB max
+                  request.resource.contentType.matches('image/.*');
+    }
+    
     // Allow access to reports
     match /reports/{merchantId}/{fileName} {
-      allow read: if true;  // For development - restrict in production
+      allow read: if request.auth != null &&
+                 (request.auth.uid == merchantId || 
+                  request.auth.token.role == 'admin');
       allow write: if false;  // Only allow writes through Firebase Functions
+    }
+    
+    // Allow general file uploads in specific paths
+    match /{env}/{type}/{userId}/{fileName} {
+      allow read: if request.auth != null &&
+                 (request.auth.uid == userId || 
+                  request.auth.token.role == 'admin');
+      allow write: if request.auth != null &&
+                  request.auth.uid == userId &&
+                  request.resource.size < 10 * 1024 * 1024;
     }
     
     // Default deny all other paths

@@ -5,6 +5,7 @@ import FirebaseFirestore
 import FirebaseAuth
 import FirebaseStorage
 import FirebaseFunctions
+import UIKit
 
 
 // Define error types for Firebase operations
@@ -184,7 +185,26 @@ class FirebaseManager {
     }
     
     func signOut() async throws {
+        // Clear any cached data or local state before sign out
+        if let context = modelContext {
+            try? context.delete(model: APIKey.self)
+            try? context.save()
+        }
+        
+        // Reset environment to default
+        setEnvironment(.sandbox)
+        
+        // Remove all listeners
+        NotificationCenter.default.post(name: .userWillSignOut, object: nil)
+        
+        // Perform the actual sign out
         try auth.signOut()
+        
+        // Clear any sensitive data
+        UserDefaults.standard.removeObject(forKey: "environment")
+        
+        // Post notification that sign out is complete
+        NotificationCenter.default.post(name: .userDidSignOut, object: nil)
     }
     
     func resetPassword(for email: String) async throws {
@@ -288,6 +308,97 @@ class FirebaseManager {
         }
     }
     
+    // MARK: - Profile Image Methods
+    
+    /// Uploads a profile image for the specified user
+    /// - Parameters:
+    ///   - userId: The ID of the user
+    ///   - imageData: The image data to upload
+    ///   - progressHandler: Optional closure to track upload progress (0.0 to 1.0)
+    /// - Returns: The download URL of the uploaded image
+    func uploadProfileImage(userId: String, imageData: Data, progressHandler: ((Double) -> Void)? = nil) async throws -> URL {
+        // Create storage reference
+        let storageRef = storage.reference()
+        let profileImageRef = storageRef.child("\(environment.rawValue)/profiles/\(userId)/profile.jpg")
+        
+        // Compress image for better storage efficiency
+        guard let compressedImageData = compressImage(imageData) else {
+            throw FirebaseError.invalidData
+        }
+        
+        // Create metadata
+        let metadata = StorageMetadata()
+        metadata.contentType = "image/jpeg"
+        
+        // Create upload task
+        let uploadTask = profileImageRef.putData(compressedImageData, metadata: metadata)
+        
+        // Monitor progress
+        if let progressHandler = progressHandler {
+            uploadTask.observe(.progress) { snapshot in
+                guard let progress = snapshot.progress else { return }
+                let percentComplete = Double(progress.completedUnitCount) / Double(progress.totalUnitCount)
+                progressHandler(percentComplete)
+            }
+        }
+        
+        // Wait for task to complete
+        return try await withCheckedThrowingContinuation { continuation in
+            uploadTask.observe(.success) { _ in
+                Task {
+                    do {
+                        let downloadURL = try await profileImageRef.downloadURL()
+                        
+                        // Update user's profile image URL in Firestore
+                        if let currentUser = self.auth.currentUser {
+                            try await self.db.collection("users").document(currentUser.uid).updateData([
+                                "profileImageURL": downloadURL.absoluteString
+                            ])
+                        }
+                        
+                        continuation.resume(returning: downloadURL)
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+            
+            uploadTask.observe(.failure) { snapshot in
+                if let error = snapshot.error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(throwing: FirebaseError.unknown(NSError(domain: "FirebaseManager", code: 1005, userInfo: [NSLocalizedDescriptionKey: "Unknown upload error"])))
+                }
+            }
+        }
+    }
+    
+    private func compressImage(_ imageData: Data) -> Data? {
+        guard let image = UIImage(data: imageData) else { return nil }
+        
+        // Target size for profile images (512x512 max while maintaining aspect ratio)
+        let maxDimension: CGFloat = 512
+        let aspectRatio = image.size.width / image.size.height
+        
+        var targetSize: CGSize
+        if aspectRatio > 1 {
+            // Width is larger
+            targetSize = CGSize(width: maxDimension, height: maxDimension / aspectRatio)
+        } else {
+            // Height is larger or square
+            targetSize = CGSize(width: maxDimension * aspectRatio, height: maxDimension)
+        }
+        
+        // Resize image
+        let renderer = UIGraphicsImageRenderer(size: targetSize)
+        let resizedImage = renderer.image { context in
+            image.draw(in: CGRect(origin: .zero, size: targetSize))
+        }
+        
+        // Compress to JPEG
+        return resizedImage.jpegData(compressionQuality: 0.7)
+    }
+    
     // MARK: - Transaction Methods
     
     func getTransactions(limit: Int = 50) async throws -> [Transaction] {
@@ -369,22 +480,95 @@ class FirebaseManager {
     
     // MARK: - API Key Methods
     
-    func generateAPIKey(for merchantId: String, name: String) async throws -> String {
-        // Generate a random key
-        let apiKey = "vz_\(environment.rawValue.prefix(1))k_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+    func generateAPIKey(for merchantId: String, name: String, environment: AppEnvironment) async throws -> String {
+        // Generate a unique API key with prefix and random string
+        let prefix = environment == .sandbox ? "vz_sk_test" : "vz_sk_live"
+        let randomString = UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        let apiKey = "\(prefix)_\(randomString)"
         
         // Store in Firestore
         let keyData: [String: Any] = [
+            "id": UUID().uuidString,
+            "name": name,
             "key": apiKey,
             "merchantId": merchantId,
-            "name": name,
+            "environment": environment.rawValue,
             "createdAt": Timestamp(),
-            "environment": environment.rawValue
+            "lastUsed": nil as Timestamp?
         ]
         
         try await db.collection("apiKeys").document().setData(keyData)
         
         return apiKey
+    }
+    
+    func getAPIKeys() async throws -> [APIKey] {
+        guard let currentUser = auth.currentUser else {
+            throw FirebaseError.authenticationRequired
+        }
+        
+        let snapshot = try await db.collection("apiKeys")
+            .whereField("merchantId", isEqualTo: currentUser.uid)
+            .getDocuments()
+        
+        return snapshot.documents.compactMap { document in
+            let data = document.data()
+            guard let name = data["name"] as? String,
+                  let key = data["key"] as? String,
+                  let createdAt = data["createdAt"] as? Timestamp,
+                  let environmentString = data["environment"] as? String,
+                  let environment = AppEnvironment(rawValue: environmentString) else {
+                return nil
+            }
+            
+            let lastUsed = data["lastUsed"] as? Timestamp
+            
+            return APIKey(
+                id: document.documentID,
+                name: name,
+                key: key,
+                createdAt: createdAt.dateValue(),
+                environment: environment,
+                lastUsed: lastUsed?.dateValue(),
+                scopes: Set(APIScope.allCases),
+                active: true,
+                merchantId: currentUser.uid
+            )
+        }
+    }
+    
+    func deleteAPIKey(_ keyId: String) async throws {
+        try await db.collection("apiKeys").document(keyId).delete()
+        
+        // Also remove from SwiftData if present
+        if let modelContext = modelContext {
+            let descriptor = FetchDescriptor<APIKey>(
+                predicate: #Predicate<APIKey> { key in
+                    key.id == keyId
+                }
+            )
+            if let keyToDelete = try? modelContext.fetch(descriptor).first {
+                modelContext.delete(keyToDelete)
+            }
+        }
+    }
+    
+    func validateAPIKey(_ key: String) async throws -> Bool {
+        let snapshot = try await db.collection("apiKeys")
+            .whereField("key", isEqualTo: key)
+            .limit(to: 1)
+            .getDocuments()
+        
+        guard let document = snapshot.documents.first else {
+            return false
+        }
+        
+        // Update last used timestamp
+        try await document.reference.updateData([
+            "lastUsed": Timestamp()
+        ])
+        
+        return true
     }
     
     // MARK: - Webhook Methods
@@ -614,4 +798,10 @@ struct DashboardData {
     let integrationChange: Double
     
     // Would have more data in a real implementation
+}
+
+// Add notification names
+extension Notification.Name {
+    static let userWillSignOut = Notification.Name("userWillSignOut")
+    static let userDidSignOut = Notification.Name("userDidSignOut")
 } 

@@ -173,19 +173,28 @@ class AuthorizationManager: ObservableObject {
         }
     }
     
-    func signOut() {
+    func signOut() async {
         do {
-            try Auth.auth().signOut()
-            
-            DispatchQueue.main.async {
+            // First clear local state
+            await MainActor.run {
                 self.currentUser = nil
-                self.authState = .signedOut
                 self.errorMessage = nil
+            }
+            
+            // Call Firebase Manager to handle Firebase signout and cleanup
+            try await FirebaseManager.shared.signOut()
+            
+            // Update auth state last to trigger UI updates
+            await MainActor.run {
+                self.authState = .signedOut
             }
         } catch {
             print("Error signing out: \(error.localizedDescription)")
-            DispatchQueue.main.async {
+            await MainActor.run {
                 self.errorMessage = "Failed to sign out. Please try again."
+                // Even if there's an error, we should still sign out locally
+                self.currentUser = nil
+                self.authState = .signedOut
             }
         }
     }
@@ -232,7 +241,7 @@ class AuthorizationManager: ObservableObject {
     // MARK: - Role-Based Access Control
     
     /// Checks if the current user has the required permission
-    func hasPermission(_ permission: Permission) -> Bool {
+    func hasPermission(_ permission: Permission) async -> Bool {
         guard let user = currentUser else { return false }
         
         // Return the permission check based on the user's role
@@ -358,8 +367,44 @@ class AuthorizationManager: ObservableObject {
             print("Token refresh error: \(error.localizedDescription)")
             await MainActor.run {
                 self.errorMessage = "Authentication error: \(error.localizedDescription)"
-                self.signOut()
             }
+            await signOut()
+            return false
+        }
+    }
+    
+    func checkPermission(_ permission: Permission) async -> Bool {
+        do {
+            // Check if we need to refresh the token
+            guard let authUser = Auth.auth().currentUser else {
+                // No Firebase user, despite having a currentUser
+                await MainActor.run {
+                    self.errorMessage = "Your session has expired. Please sign in again."
+                    self.authState = .signedOut
+                }
+                return false
+            }
+            
+            // Force refresh token to ensure latest permissions
+            _ = try await authUser.getIDTokenResult(forcingRefresh: true)
+            
+            // Check the actual permission
+            let hasPermission = permissionMap[currentUser?.role ?? .customer]?.contains(permission) ?? false
+            
+            if !hasPermission {
+                print("Permission denied: \(permission.rawValue) for role \(currentUser?.role.rawValue ?? "unknown")")
+                await MainActor.run {
+                    self.errorMessage = "You don't have permission to perform this action."
+                }
+            }
+            
+            return hasPermission
+        } catch {
+            print("Token refresh error: \(error.localizedDescription)")
+            await MainActor.run {
+                self.errorMessage = "Authentication error: \(error.localizedDescription)"
+            }
+            await signOut()
             return false
         }
     }
@@ -376,52 +421,40 @@ extension View {
 }
 
 struct PermissionRequirementModifier: ViewModifier {
-    @ObservedObject private var authManager = AuthorizationManager.shared
+    @EnvironmentObject private var authManager: AuthorizationManager
     let requiredPermission: AuthorizationManager.Permission
+    @State private var hasPermission = false
+    @State private var isLoading = true
     
     func body(content: Content) -> some View {
         Group {
-            if authManager.hasPermission(requiredPermission) {
+            if isLoading {
+                ProgressView()
+            } else if hasPermission {
                 content
             } else {
-                UnauthorizedAccessView(requiredPermission: requiredPermission)
+                UnauthorizedView()
             }
+        }
+        .task {
+            hasPermission = await authManager.checkPermission(requiredPermission)
+            isLoading = false
         }
     }
 }
 
-struct UnauthorizedAccessView: View {
-    let requiredPermission: AuthorizationManager.Permission
-    
+struct UnauthorizedView: View {
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 16) {
             Image(systemName: "lock.shield")
-                .font(.system(size: 60))
+                .font(.system(size: 48))
                 .foregroundColor(.red)
-            
-            Text("Access Denied")
-                .font(.title)
-                .fontWeight(.bold)
-            
-            Text("You don't have permission to access this feature.")
-                .multilineTextAlignment(.center)
-            
-            Text("Required permission: \(requiredPermission.rawValue)")
-                .font(.caption)
+            Text("Unauthorized Access")
+                .font(.headline)
+            Text("You don't have permission to view this content.")
                 .foregroundColor(.secondary)
-                .padding(.top, 4)
-            
-            Button("Go Back") {
-                // Navigate back if possible
-            }
-            .padding()
-            .foregroundColor(.white)
-            .background(Color.blue)
-            .cornerRadius(8)
-            .padding(.top, 20)
+                .multilineTextAlignment(.center)
         }
         .padding()
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemBackground))
     }
 } 

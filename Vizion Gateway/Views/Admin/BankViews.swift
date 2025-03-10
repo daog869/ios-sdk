@@ -1,6 +1,8 @@
 import SwiftUI
 import SwiftData
 
+// LogLevel enum moved to separate file: LogLevel.swift
+
 struct ConnectedBanksView: View {
     @State private var banks = [
         "National Bank": "Connected",
@@ -65,7 +67,55 @@ struct SettlementAccountsView: View {
     }
 }
 
+struct APILogStatusBar: View {
+    let isAutoRefreshing: Bool
+    let lastRefreshed: Date
+    
+    var body: some View {
+        HStack {
+            Circle()
+                .fill(isAutoRefreshing ? .green : .secondary)
+                .frame(width: 8, height: 8)
+            Text(isAutoRefreshing ? "Live" : "Paused")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Text("Last updated: \(lastRefreshed.formatted(.relative(presentation: .numeric)))")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .background(.bar)
+    }
+}
+
+struct APILogItem: View {
+    let log: APILog
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(log.timestamp, style: .time)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(log.level.rawValue)
+                    .font(.caption)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(log.level.color.opacity(0.2))
+                    .foregroundStyle(log.level.color)
+                    .clipShape(Capsule())
+            }
+            Text(log.message)
+                .font(.system(.body, design: .monospaced))
+        }
+        .padding(.vertical, 4)
+    }
+}
+
 struct APILogsView: View {
+    @Environment(\.modelContext) private var modelContext
     @State private var logs: [APILog] = []
     @State private var searchText = ""
     @State private var isAutoRefreshing = true
@@ -75,63 +125,47 @@ struct APILogsView: View {
     @State private var dateRange: ClosedRange<Date>?
     
     var filteredLogs: [APILog] {
-        logs.prefix(1000).filter { log in
-            var matches = true
-            
-            if !searchText.isEmpty {
-                matches = matches && log.message.localizedCaseInsensitiveContains(searchText)
+        let initialLogs = logs.prefix(1000)
+        
+        return initialLogs.filter { log in
+            // Check search text
+            let matchesSearch: Bool
+            if searchText.isEmpty {
+                matchesSearch = true
+            } else {
+                matchesSearch = log.message.localizedCaseInsensitiveContains(searchText)
             }
             
+            // Check log level
+            let matchesLevel: Bool
             if let level = selectedLogLevel {
-                matches = matches && log.level == level
+                matchesLevel = log.level == level
+            } else {
+                matchesLevel = true
             }
             
+            // Check date range
+            let matchesDate: Bool
             if let range = dateRange {
-                matches = matches && range.contains(log.timestamp)
+                matchesDate = range.contains(log.timestamp)
+            } else {
+                matchesDate = true
             }
             
-            return matches
+            return matchesSearch && matchesLevel && matchesDate
         }
     }
     
     var body: some View {
         VStack(spacing: 0) {
-            // Status Bar
-            HStack {
-                Circle()
-                    .fill(isAutoRefreshing ? .green : .secondary)
-                    .frame(width: 8, height: 8)
-                Text(isAutoRefreshing ? "Live" : "Paused")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text("Last updated: \(lastRefreshed.formatted(.relative(presentation: .numeric)))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal)
-            .padding(.vertical, 8)
-            .background(.bar)
+            APILogStatusBar(
+                isAutoRefreshing: isAutoRefreshing,
+                lastRefreshed: lastRefreshed
+            )
             
             List {
                 ForEach(filteredLogs) { log in
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text(log.timestamp, style: .time)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text(log.level.rawValue)
-                                .font(.caption)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(log.level.color.opacity(0.2))
-                                .foregroundStyle(log.level.color)
-                                .clipShape(Capsule())
-                        }
-                        Text(log.message)
-                            .font(.system(.body, design: .monospaced))
-                    }
-                    .padding(.vertical, 4)
+                    APILogItem(log: log)
                 }
             }
             .listStyle(.plain)
@@ -144,7 +178,8 @@ struct APILogsView: View {
                     Button {
                         isAutoRefreshing.toggle()
                     } label: {
-                        Label(isAutoRefreshing ? "Pause" : "Resume", systemImage: isAutoRefreshing ? "pause.fill" : "play.fill")
+                        Label(isAutoRefreshing ? "Pause" : "Resume", 
+                              systemImage: isAutoRefreshing ? "pause.fill" : "play.fill")
                     }
                     
                     Button {
@@ -160,13 +195,12 @@ struct APILogsView: View {
                 selectedLevel: $selectedLogLevel,
                 dateRange: $dateRange
             )
+            .presentationDetents([.medium])
             .presentationDragIndicator(.visible)
         }
         .task {
-            // Auto-refresh every 5 seconds when enabled
             while isAutoRefreshing {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
-                // In a real app, fetch new logs here
                 lastRefreshed = Date()
             }
         }
@@ -226,29 +260,6 @@ struct LogFilterView: View {
     }
 }
 
-struct APILog: Identifiable {
-    let id = UUID()
-    let timestamp: Date
-    let level: LogLevel
-    let message: String
-}
-
-enum LogLevel: String, CaseIterable {
-    case info = "INFO"
-    case warning = "WARN"
-    case error = "ERROR"
-    case debug = "DEBUG"
-    
-    var color: Color {
-        switch self {
-        case .info: return .blue
-        case .warning: return .orange
-        case .error: return .red
-        case .debug: return .gray
-        }
-    }
-}
-
 struct WebhookEventsView: View {
     @State private var events: [WebhookEvent] = []
     @State private var searchText = ""
@@ -259,25 +270,35 @@ struct WebhookEventsView: View {
     @State private var dateRange: ClosedRange<Date>?
     
     var filteredEvents: [WebhookEvent] {
-        events.prefix(1000).filter { event in
-            var matches = true
-            
-            if !searchText.isEmpty {
-                matches = matches && (
-                    event.type.rawValue.localizedCaseInsensitiveContains(searchText) ||
-                    event.description.localizedCaseInsensitiveContains(searchText)
-                )
+        let initialEvents = events.prefix(1000)
+        
+        return initialEvents.filter { event in
+            // Check search text
+            let matchesSearch: Bool
+            if searchText.isEmpty {
+                matchesSearch = true
+            } else {
+                matchesSearch = event.type.rawValue.localizedCaseInsensitiveContains(searchText) ||
+                              event.description.localizedCaseInsensitiveContains(searchText)
             }
             
+            // Check event type
+            let matchesType: Bool
             if let type = selectedEventType {
-                matches = matches && event.type == type
+                matchesType = event.type == type
+            } else {
+                matchesType = true
             }
             
+            // Check date range
+            let matchesDate: Bool
             if let range = dateRange {
-                matches = matches && range.contains(event.timestamp)
+                matchesDate = range.contains(event.timestamp)
+            } else {
+                matchesDate = true
             }
             
-            return matches
+            return matchesSearch && matchesType && matchesDate
         }
     }
     
@@ -347,6 +368,7 @@ struct WebhookEventsView: View {
                 selectedType: $selectedEventType,
                 dateRange: $dateRange
             )
+            .presentationDetents([.medium])
             .presentationDragIndicator(.visible)
         }
         .task {

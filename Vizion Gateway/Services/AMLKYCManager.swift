@@ -11,7 +11,7 @@ import SwiftData
 class AMLKYCManager: ObservableObject {
     static let shared = AMLKYCManager()
     
-    @Published var currentVerificationStatus: VerificationStatus = .notStarted
+    @Published var currentVerificationStatus: KYCVerificationStatus = .notStarted
     @Published var verificationProgress: Double = 0.0
     @Published var verificationSteps: [VerificationStep] = []
     @Published var isLoading = false
@@ -24,7 +24,7 @@ class AMLKYCManager: ObservableObject {
     
     // MARK: - Verification Status
     
-    func getVerificationStatus(for userId: String) async throws -> VerificationStatus {
+    func getVerificationStatus(for userId: String) async throws -> KYCVerificationStatus {
         isLoading = true
         defer { isLoading = false }
         
@@ -34,7 +34,7 @@ class AMLKYCManager: ObservableObject {
             
             if docSnapshot.exists, let data = docSnapshot.data() {
                 if let statusString = data["status"] as? String,
-                   let status = VerificationStatus(rawValue: statusString) {
+                   let status = KYCVerificationStatus(rawValue: statusString) {
                     
                     // Calculate progress based on completed steps
                     if let steps = data["steps"] as? [[String: Any]] {
@@ -106,7 +106,7 @@ class AMLKYCManager: ObservableObject {
         // Create verification document
         try await db.collection("verifications").document(userId).setData([
             "userId": userId,
-            "status": VerificationStatus.notStarted.rawValue,
+            "status": KYCVerificationStatus.notStarted.rawValue,
             "createdAt": FieldValue.serverTimestamp(),
             "updatedAt": FieldValue.serverTimestamp(),
             "steps": stepDicts,
@@ -117,7 +117,7 @@ class AMLKYCManager: ObservableObject {
     
     // MARK: - Identity Verification
     
-    func uploadIdentityDocument(userId: String, documentType: DocumentType, image: UIImage) async throws -> String {
+    func uploadIdentityDocument(userId: String, documentType: KYCDocumentType, image: UIImage) async throws -> String {
         isLoading = true
         defer { isLoading = false }
         
@@ -329,7 +329,7 @@ class AMLKYCManager: ObservableObject {
         }
     }
     
-    private func updateVerificationStatus(for userId: String, status: VerificationStatus) async throws {
+    private func updateVerificationStatus(for userId: String, status: KYCVerificationStatus) async throws {
         let db = Firestore.firestore()
         
         try await db.collection("verifications").document(userId).updateData([
@@ -374,7 +374,7 @@ class AMLKYCManager: ObservableObject {
             let db = Firestore.firestore()
             
             try await db.collection("verifications").document(userId).updateData([
-                "status": VerificationStatus.verified.rawValue,
+                "status": KYCVerificationStatus.verified.rawValue,
                 "adminNotes": notes,
                 "approvedAt": FieldValue.serverTimestamp(),
                 "updatedAt": FieldValue.serverTimestamp()
@@ -405,7 +405,7 @@ class AMLKYCManager: ObservableObject {
             let db = Firestore.firestore()
             
             try await db.collection("verifications").document(userId).updateData([
-                "status": VerificationStatus.rejected.rawValue,
+                "status": KYCVerificationStatus.rejected.rawValue,
                 "rejectionReason": reason,
                 "rejectedAt": FieldValue.serverTimestamp(),
                 "updatedAt": FieldValue.serverTimestamp()
@@ -430,7 +430,7 @@ class AMLKYCManager: ObservableObject {
             let db = Firestore.firestore()
             
             try await db.collection("verifications").document(userId).updateData([
-                "status": VerificationStatus.additionalInformationRequired.rawValue,
+                "status": KYCVerificationStatus.additionalInformationRequired.rawValue,
                 "requestedItems": requestedItems,
                 "updatedAt": FieldValue.serverTimestamp()
             ])
@@ -458,132 +458,4 @@ struct UserScreeningData {
     let occupation: String
     let sourceOfFunds: String
     let isPep: Bool
-}
-
-/// Verification status enum
-enum VerificationStatus: String, Codable, CaseIterable {
-    case notStarted = "Not Started"
-    case inProgress = "In Progress"
-    case documentVerificationPending = "Document Verification Pending"
-    case underReview = "Under Review"
-    case enhancedDueDiligence = "Enhanced Due Diligence"
-    case additionalInformationRequired = "Additional Information Required"
-    case verified = "Verified"
-    case rejected = "Rejected"
-    
-    var color: Color {
-        switch self {
-        case .notStarted:
-            return .gray
-        case .inProgress, .documentVerificationPending:
-            return .blue
-        case .underReview:
-            return .orange
-        case .enhancedDueDiligence:
-            return .purple
-        case .additionalInformationRequired:
-            return .yellow
-        case .verified:
-            return .green
-        case .rejected:
-            return .red
-        }
-    }
-    
-    var description: String {
-        switch self {
-        case .notStarted:
-            return "Identity verification not started"
-        case .inProgress:
-            return "Verification in progress"
-        case .documentVerificationPending:
-            return "Verifying your documents"
-        case .underReview:
-            return "Your information is under review"
-        case .enhancedDueDiligence:
-            return "Additional verification required"
-        case .additionalInformationRequired:
-            return "We need more information"
-        case .verified:
-            return "Identity verified"
-        case .rejected:
-            return "Verification rejected"
-        }
-    }
-}
-
-/// Document types for KYC verification
-enum DocumentType: String, CaseIterable {
-    case identityPassport = "identity_passport"
-    case identityDriverLicense = "identity_drivers_license"
-    case identityNationalId = "identity_national_id"
-    case addressUtilityBill = "address_utility_bill"
-    case addressBankStatement = "address_bank_statement"
-    case selfie = "selfie"
-    
-    var displayName: String {
-        switch self {
-        case .identityPassport:
-            return "Passport"
-        case .identityDriverLicense:
-            return "Driver's License"
-        case .identityNationalId:
-            return "National ID Card"
-        case .addressUtilityBill:
-            return "Utility Bill"
-        case .addressBankStatement:
-            return "Bank Statement"
-        case .selfie:
-            return "Selfie"
-        }
-    }
-    
-    var description: String {
-        switch self {
-        case .identityPassport:
-            return "Upload a clear image of your passport"
-        case .identityDriverLicense:
-            return "Upload the front and back of your driver's license"
-        case .identityNationalId:
-            return "Upload a clear image of your national ID card"
-        case .addressUtilityBill:
-            return "Upload a utility bill from the last 3 months"
-        case .addressBankStatement:
-            return "Upload a bank statement from the last 3 months"
-        case .selfie:
-            return "Take a selfie holding your ID document"
-        }
-    }
-    
-    var verificationStepId: String {
-        switch self {
-        case .identityPassport, .identityDriverLicense, .identityNationalId:
-            return "identity_verification"
-        case .addressUtilityBill, .addressBankStatement:
-            return "address_verification"
-        case .selfie:
-            return "selfie_verification"
-        }
-    }
-}
-
-/// Verification step model
-struct VerificationStep: Identifiable, Equatable {
-    let id: String
-    let name: String
-    let description: String?
-    var isCompleted: Bool
-    var timestamp: Date?
-}
-
-/// Default verification steps
-struct VerificationStepTemplate {
-    static let defaultSteps: [VerificationStep] = [
-        VerificationStep(id: "personal_information", name: "Personal Information", description: "Provide your basic personal information", isCompleted: false, timestamp: nil),
-        VerificationStep(id: "identity_verification", name: "Identity Verification", description: "Upload a government-issued ID", isCompleted: false, timestamp: nil),
-        VerificationStep(id: "address_verification", name: "Address Verification", description: "Confirm your residential address", isCompleted: false, timestamp: nil),
-        VerificationStep(id: "selfie_verification", name: "Selfie Verification", description: "Take a selfie for facial recognition", isCompleted: false, timestamp: nil),
-        VerificationStep(id: "document_verification", name: "Document Verification", description: "Verifying your documents", isCompleted: false, timestamp: nil),
-        VerificationStep(id: "aml_screening", name: "AML Screening", description: "Anti-Money Laundering checks", isCompleted: false, timestamp: nil)
-    ]
 } 

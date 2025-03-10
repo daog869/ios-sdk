@@ -54,12 +54,14 @@ class APIService: ObservableObject {
         
         return APIKey(
             id: ref.documentID,
-            key: keyString,
             name: name,
-            merchantId: currentUser.uid,
-            active: true,
-            scopes: scopes,
+            key: keyString,
             createdAt: Date(),
+            environment: environment,
+            lastUsed: nil,
+            scopes: scopes ?? Set(APIScope.allCases),
+            active: true,
+            merchantId: currentUser.uid,
             expiresAt: expiresAt,
             ipRestrictions: ipRestrictions,
             metadata: metadata
@@ -92,13 +94,17 @@ class APIService: ObservableObject {
         }
         
         let webhookId = UUID().uuidString
+        
+        // Get current environment
+        let currentEnvironment = UserDefaults.standard.string(forKey: "environment").flatMap { AppEnvironment(rawValue: $0) } ?? .sandbox
+
         let webhookData: [String: Any] = [
             "id": webhookId,
             "url": url.absoluteString,
             "events": events,
             "merchantId": currentUser.uid,
             "createdAt": Timestamp(date: Date()),
-            "environment": UserDefaults.standard.string(forKey: "environment") ?? AppEnvironment.sandbox.rawValue,
+            "environment": currentEnvironment.rawValue,
             "isActive": true
         ]
         
@@ -109,7 +115,12 @@ class APIService: ObservableObject {
             url: url.absoluteString,
             events: events,
             isActive: true,
-            createdAt: Date()
+            createdAt: Date(),
+            merchantId: currentUser.uid,
+            environment: currentEnvironment,
+            lastAttempt: nil,
+            lastSuccess: nil,
+            failureCount: 0
         )
     }
     
@@ -248,7 +259,11 @@ class APIService: ObservableObject {
                 path: path,
                 statusCode: statusCode,
                 duration: duration,
-                environment: environment
+                merchantId: currentUser.uid,
+                environment: AppEnvironment(rawValue: environment) ?? .sandbox,
+                requestBody: data["requestBody"] as? String,
+                responseBody: data["responseBody"] as? String,
+                errorMessage: data["errorMessage"] as? String
             )
         }
     }

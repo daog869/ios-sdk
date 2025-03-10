@@ -6,7 +6,7 @@ struct IdentityVerificationView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel = IdentityVerificationViewModel()
     @State private var currentStep = 0
-    @State private var selectedDocumentType: DocumentType = .identityPassport
+    @State private var selectedDocumentType: KYCDocumentType = .identityPassport
     @State private var showCameraSheet = false
     @State private var showPhotosPicker = false
     @State private var selectedItems: [PhotosPickerItem] = []
@@ -231,7 +231,7 @@ struct IdentityVerificationView: View {
                 .padding(.horizontal)
             
             Picker("Document Type", selection: $selectedDocumentType) {
-                ForEach(DocumentType.allCases, id: \.self) { type in
+                ForEach(KYCDocumentType.allCases, id: \.self) { type in
                     Text(type.displayName).tag(type)
                 }
             }
@@ -408,7 +408,7 @@ struct VerificationCompletedView: View {
 // MARK: - ViewModel
 
 class IdentityVerificationViewModel: ObservableObject {
-    @Published var status: VerificationStatus = .notStarted
+    @Published var status: KYCVerificationStatus = .notStarted
     @Published var progress: Double = 0.0
     @Published var steps: [VerificationStep] = []
     @Published var isLoading = false
@@ -455,7 +455,7 @@ class IdentityVerificationViewModel: ObservableObject {
             // Update status to in progress
             let db = Firestore.firestore()
             try await db.collection("verifications").document(userId).updateData([
-                "status": VerificationStatus.inProgress.rawValue,
+                "status": KYCVerificationStatus.inProgress.rawValue,
                 "updatedAt": FieldValue.serverTimestamp()
             ])
             
@@ -488,7 +488,7 @@ class IdentityVerificationViewModel: ObservableObject {
         }
     }
     
-    func uploadDocument(userId: String, documentType: DocumentType, image: UIImage) async {
+    func uploadDocument(userId: String, documentType: KYCDocumentType, image: UIImage) async {
         await MainActor.run {
             isLoading = true
         }

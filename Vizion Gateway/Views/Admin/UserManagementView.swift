@@ -191,16 +191,12 @@ struct UserRow: View {
     
     var body: some View {
         HStack(spacing: 16) {
-            // User avatar
-            ZStack {
-                Circle()
-                    .fill(Color.accentColor.opacity(0.1))
-                    .frame(width: 40, height: 40)
-                
-                Text(initials)
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(Color.accentColor)
-            }
+            // Profile photo
+            ProfilePhotoView(
+                imageURL: user.profileImageURL, 
+                initials: initials, 
+                size: 40
+            )
             
             VStack(alignment: .leading, spacing: 4) {
                 Text("\(user.firstName) \(user.lastName)")
@@ -224,8 +220,8 @@ struct UserRow: View {
                 
                 if !user.isActive {
                     Text("Inactive")
-            .font(.caption)
-            .foregroundStyle(.secondary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
             }
         }
@@ -310,6 +306,19 @@ struct UserDetailView: View {
                     Divider()
                     
                     VStack(spacing: 16) {
+                        // Profile Photo
+                        HStack {
+                            Spacer()
+                            ProfilePhotoView(
+                                imageURL: user.profileImageURL,
+                                initials: getInitials(),
+                                size: 100,
+                                showBorder: true
+                            )
+                            Spacer()
+                        }
+                        .padding(.bottom, 8)
+                        
                         // User info form
                         Group {
                             if isEditing {
@@ -571,6 +580,12 @@ struct UserDetailView: View {
         case .security:
             return .red
         }
+    }
+    
+    private func getInitials() -> String {
+        let firstInitial = user.firstName.first?.uppercased() ?? ""
+        let lastInitial = user.lastName.first?.uppercased() ?? ""
+        return "\(firstInitial)\(lastInitial)"
     }
 }
 

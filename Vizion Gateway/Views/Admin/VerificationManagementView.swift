@@ -5,6 +5,7 @@ struct VerificationManagementView: View {
     @StateObject private var viewModel = VerificationManagementViewModel()
     @State private var showingVerificationDetails = false
     @State private var selectedVerification: VerificationRecord?
+    @State private var selectedStatus: KYCVerificationStatus?
     
     var body: some View {
         NavigationView {
@@ -613,7 +614,7 @@ class VerificationManagementViewModel: ObservableObject {
     private let db = Firestore.firestore()
     
     // Order of statuses for display
-    let statusOptions: [VerificationStatus] = [
+    let statusOptions: [KYCVerificationStatus] = [
         .documentVerificationPending,
         .underReview,
         .enhancedDueDiligence,
@@ -639,7 +640,7 @@ class VerificationManagementViewModel: ObservableObject {
                 
                 guard let userId = data["userId"] as? String,
                       let statusString = data["status"] as? String,
-                      let status = VerificationStatus(rawValue: statusString) else {
+                      let status = KYCVerificationStatus(rawValue: statusString) else {
                     return nil
                 }
                 
@@ -785,7 +786,7 @@ struct VerificationRecord: Identifiable {
     let id: String
     let userId: String
     let userName: String
-    let status: VerificationStatus
+    let status: KYCVerificationStatus
     let createdAt: Date?
     let updatedAt: Date?
     let riskScore: Int

@@ -42,6 +42,7 @@ final class User {
     var businessName: String?  // For merchant users
     var isVerified: Bool = false  // Track KYC/AML verification status
     var verificationDate: Date?   // When the user was verified
+    var profileImageURL: String?  // URL to the user's profile image
     
     // Firebase identifiers
     var firebaseId: String?
@@ -67,7 +68,8 @@ final class User {
         businessName: String? = nil,
         firebaseId: String? = nil,
         isVerified: Bool = false,
-        verificationDate: Date? = nil
+        verificationDate: Date? = nil,
+        profileImageURL: String? = nil
     ) {
         self.id = id
         self.firstName = firstName
@@ -84,6 +86,7 @@ final class User {
         self.firebaseId = firebaseId
         self.isVerified = isVerified
         self.verificationDate = verificationDate
+        self.profileImageURL = profileImageURL
     }
     
     // Note: Firebase serialization methods (toDictionary and fromDictionary) 

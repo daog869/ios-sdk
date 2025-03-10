@@ -116,11 +116,17 @@ class MerchantManager {
             
             let apiKey = APIKey(
                 id: keyDoc.documentID,
-                key: key,
                 name: name,
-                merchantId: id,
+                key: key,
+                createdAt: timestamp.dateValue(),
+                environment: AppEnvironment(rawValue: keyData["environment"] as? String ?? "sandbox") ?? .sandbox,
+                lastUsed: nil,
+                scopes: [],
                 active: active,
-                createdAt: timestamp.dateValue()
+                merchantId: id,
+                expiresAt: nil,
+                ipRestrictions: nil,
+                metadata: nil
             )
             
             apiKeys.append(apiKey)
@@ -205,10 +211,10 @@ class MerchantManager {
         let db = Firestore.firestore()
         
         // Get current environment
-        let environment = UserDefaults.standard.string(forKey: "environment") ?? "sandbox"
+        let currentEnvironment = UserDefaults.standard.string(forKey: "environment").flatMap { AppEnvironment(rawValue: $0) } ?? .sandbox
         
         // Generate a secure random key
-        let keyString = "vz_\(environment.prefix(1))k_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        let keyString = "vz_\(currentEnvironment == .production ? "live" : "test")_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
         
         // Create API key document
         let ref = db.collection("apiKeys").document()
@@ -218,7 +224,7 @@ class MerchantManager {
             "merchantId": merchantId,
             "active": true,
             "createdAt": Timestamp(date: Date()),
-            "environment": environment
+            "environment": currentEnvironment.rawValue
         ]
         
         try await ref.setData(keyData)
@@ -226,11 +232,17 @@ class MerchantManager {
         // Return the created API key
         return APIKey(
             id: ref.documentID,
-            key: keyString,
             name: name,
-            merchantId: merchantId,
+            key: keyString,
+            createdAt: Date(),
+            environment: currentEnvironment,
+            lastUsed: nil,
+            scopes: [],
             active: true,
-            createdAt: Date()
+            merchantId: merchantId,
+            expiresAt: nil,
+            ipRestrictions: nil,
+            metadata: nil
         )
     }
     

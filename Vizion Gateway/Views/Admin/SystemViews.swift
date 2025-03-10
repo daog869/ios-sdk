@@ -424,11 +424,17 @@ class APIKeysViewModel: ObservableObject {
             
             return APIKey(
                 id: doc.documentID,
-                key: key,
                 name: name,
-                merchantId: merchantId,
+                key: key,
+                createdAt: createdAt,
+                environment: AppEnvironment(rawValue: data["environment"] as? String ?? "sandbox") ?? .sandbox,
+                lastUsed: nil,
+                scopes: [],
                 active: active,
-                createdAt: createdAt
+                merchantId: merchantId,
+                expiresAt: nil,
+                ipRestrictions: nil,
+                metadata: nil
             )
         }
     }
@@ -749,7 +755,9 @@ struct SystemStatusView: View {
         .alert("Sign Out", isPresented: $showingSignOutConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Sign Out", role: .destructive) {
-                authManager.signOut()
+                Task {
+                    await authManager.signOut()
+                }
             }
         } message: {
             Text("Are you sure you want to sign out?")

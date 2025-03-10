@@ -245,12 +245,54 @@ struct AdminTransactionDetailView: View {
                     LabeledContent("Timestamp", value: transaction.timestamp, format: .dateTime)
                 }
                 
-                Section("Merchant Details") {
-                    LabeledContent("Name", value: transaction.merchantName)
-                    LabeledContent("Customer ID", value: transaction.customerId ?? "None")
-                    LabeledContent("Reference", value: transaction.reference)
-                    if let description = transaction.transactionDescription {
-                        LabeledContent("Description", value: description)
+                Section("Parties") {
+                    // Merchant
+                    HStack(spacing: 16) {
+                        ProfilePhotoView(
+                            imageURL: nil, // TODO: Add merchant profile image URL
+                            initials: getMerchantInitials(),
+                            size: 40
+                        )
+                        
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(transaction.merchantName)
+                                .font(.headline)
+                            Text("Merchant")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text("ID: \(transaction.merchantId)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    
+                    if let customerId = transaction.customerId {
+                        Divider()
+                        
+                        // Customer
+                        HStack(spacing: 16) {
+                            ProfilePhotoView(
+                                imageURL: nil, // TODO: Add customer profile image URL
+                                initials: "C",
+                                size: 40
+                            )
+                            
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Customer")
+                                    .font(.headline)
+                                Text("ID: \(customerId)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+                
+                if let description = transaction.transactionDescription {
+                    Section("Description") {
+                        Text(description)
                     }
                 }
                 
@@ -282,6 +324,12 @@ struct AdminTransactionDetailView: View {
                 }
             }
         }
+    }
+    
+    private func getMerchantInitials() -> String {
+        let words = transaction.merchantName.components(separatedBy: .whitespaces)
+        let initials = words.prefix(2).compactMap { $0.first?.uppercased() }.joined()
+        return initials.isEmpty ? "M" : initials
     }
 }
 
