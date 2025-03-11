@@ -33,6 +33,38 @@ Or in Xcode:
 2. Enter: `https://github.com/vizion-gateway/ios-sdk.git`
 3. Click "Add Package"
 
+## Configuration
+
+### Firebase Setup (if using Firebase features)
+
+The SDK uses a template approach for Firebase configuration to avoid exposing API keys in source control:
+
+1. Copy the included `GoogleService-Info.template.plist` to `GoogleService-Info.plist` in your project
+2. Replace placeholder values with your actual Firebase configuration:
+   - `YOUR_API_KEY_HERE`: Your Google API key
+   - `YOUR_GCM_SENDER_ID`: Your GCM Sender ID
+   - `YOUR_PROJECT_ID`: Your Firebase project ID
+   - `YOUR_STORAGE_BUCKET`: Your Firebase storage bucket
+
+⚠️ **Security Note:** Never commit the actual `GoogleService-Info.plist` file to your repository. It contains sensitive API keys that should be kept private. The `.gitignore` file is configured to exclude this file from source control.
+
+### API Credentials
+
+Initialize the SDK with your API credentials:
+
+```swift
+import VizionGateway
+
+// In your app's initialization code
+VizionGateway.configure(
+    .init(
+        apiKey: "your_api_key",
+        merchantId: "your_merchant_id",
+        environment: .sandbox // or .production
+    )
+)
+```
+
 ## Usage
 
 ### Initialize the SDK
