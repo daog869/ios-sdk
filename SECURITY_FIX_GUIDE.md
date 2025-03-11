@@ -18,7 +18,7 @@ Since the previous key has been exposed, you should regenerate it in Google Clou
 1. Log in to [Google Cloud Console](https://console.cloud.google.com/)
 2. Go to the "Vizion Gateway" project
 3. Navigate to "APIs & Services" > "Credentials"
-4. Find the exposed API key (AIzaSyAFPQ3UgiKQVPRRy-xYeBAZo6R0853JFXk)
+4. Find the exposed API key (<<<<YOUR><</YOUR>API>>>>>>)
 5. Either:
    - Click on it and select "Regenerate key", or
    - Create a new key and delete the compromised one
