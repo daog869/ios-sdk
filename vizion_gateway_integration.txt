@@ -1,0 +1,109 @@
+Vizion Gateway SDK Integration Instructions
+
+Repository: https://github.com/vizion-gateway/ios-sdk.git
+Version: 1.0.0
+
+Requirements:
+- iOS 17.0 or later
+- Xcode 15.0 or later
+- Swift 5.9 or later
+
+Installation Options:
+
+1. Swift Package Manager (SPM) via Xcode UI:
+   a. Open your project in Xcode
+   b. Select File > Add Packages
+   c. Paste this URL: https://github.com/vizion-gateway/ios-sdk.git
+   d. Click "Add Package"
+
+2. Manual Package.swift configuration:
+   Add this to your dependencies:
+   ```swift
+   dependencies: [
+       .package(url: "https://github.com/vizion-gateway/ios-sdk.git", from: "1.0.0")
+   ]
+   ```
+
+Basic Integration Steps:
+
+1. Import the SDK:
+   ```swift
+   import VizionGateway
+   ```
+
+2. Initialize the SDK (typically in AppDelegate or during app startup):
+   ```swift
+   VizionGateway.configure(
+       .init(
+           apiKey: "your_api_key",
+           merchantId: "your_merchant_id",
+           environment: .sandbox // Use .production for live environment
+       )
+   )
+   ```
+
+3. Process Payments:
+   
+   a. Card Payment:
+   ```swift
+   CardPaymentView(
+       amount: 99.99,
+       currency: .xcd,
+       sourceId: "customer_id",
+       destinationId: "merchant_id",
+       orderId: "order123"
+   ) { result in
+       switch result.status {
+       case .completed:
+           print("Payment succeeded: \(result.transactionId)")
+       case .failed:
+           print("Payment failed: \(result.errorMessage ?? "Unknown error")")
+       default:
+           break
+       }
+   }
+   ```
+
+   b. Apple Pay:
+   ```swift
+   let handler = ApplePayHandler(
+       amount: 99.99,
+       sourceId: "customer_id",
+       destinationId: "merchant_id",
+       orderId: "order123"
+   )
+
+   handler.presentApplePay(in: viewController) { success in
+       if success {
+           print("Apple Pay payment completed!")
+       } else {
+           print("Apple Pay payment failed or cancelled")
+       }
+   }
+   ```
+
+Key Features Available:
+- Direct card payment processing
+- Apple Pay integration
+- Transaction management
+- Webhook support
+- Analytics and reporting
+- Biometric authentication
+- Secure data storage
+- Rate limiting and retry logic
+- Caching system
+- Network monitoring
+
+Security Features:
+- Encrypted data storage
+- Biometric authentication
+- Certificate pinning
+- Secure key storage
+- Payment data validation
+
+Support:
+- Email: support@viziongateway.com
+- Documentation: https://docs.viziongateway.com
+- Website: https://viziongateway.com
+
+Note: Replace placeholder values (your_api_key, your_merchant_id, etc.) with your actual credentials from Vizion Gateway. 

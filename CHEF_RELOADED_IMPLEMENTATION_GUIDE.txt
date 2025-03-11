@@ -1,0 +1,945 @@
+# CHEF RELOADED - VIZION GATEWAY IMPLEMENTATION GUIDE
+
+## IMMEDIATE IMPLEMENTATION STEPS
+
+This guide provides specific code changes needed to integrate Chef Reloaded with Vizion Gateway payment processing.
+
+## 1. REPLACE PAYMENT HANDLER
+
+Replace your current `PaymentHandler.swift` with this implementation:
+
+```swift
+import Foundation
+import SwiftUI
+
+class PaymentHandler {
+    static let shared = PaymentHandler()
+    private let paymentManager = PaymentManager.shared
+    
+    // MARK: - Payment Processing
+    
+    func processPayment(
+        amount: Double,
+        paymentType: PaymentType,
+        orderId: String,
+        customerId: String,
+        restaurantId: String
+    ) async throws -> PaymentResult {
+        // Convert to Vizion Gateway format
+        let decimalAmount = Decimal(amount)
+        let currency = Currency.xcd // Add XCD to Currency enum in PaymentModels.swift
+        
+        // Map payment type
+        let method: PaymentMethod
+        switch paymentType {
+        case .card:
+            method = .card
+        case .applePay:
+            method = .applePay
+        case .wallet:
+            method = .wallet
+        default:
+            method = .card
+        }
+        
+        // Calculate loyalty points (1 point per dollar)
+        let loyaltyPoints = Int(amount)
+        
+        // Process payment through Vizion Gateway
+        return try await paymentManager.processPayment(
+            amount: decimalAmount,
+            currency: currency,
+            method: method,
+            sourceId: customerId,
+            destinationId: restaurantId,
+            metadata: [
+                "order_id": orderId,
+                "loyalty_points": "\(loyaltyPoints)",
+                "app": "chef_reloaded"
+            ]
+        )
+    }
+    
+    func processRefund(
+        transactionId: String,
+        amount: Double? = nil
+    ) async throws -> PaymentResult {
+        let decimalAmount = amount != nil ? Decimal(amount!) : nil
+        return try await paymentManager.refundPayment(
+            transactionId: transactionId,
+            amount: decimalAmount
+        )
+    }
+    
+    // MARK: - Apple Pay
+    
+    func canMakeApplePayPayments() -> Bool {
+        // Keep existing Apple Pay verification logic
+        return true // Replace with actual implementation
+    }
+    
+    // MARK: - Transaction History
+    
+    func getCustomerTransactions(customerId: String) async throws -> [PaymentTransaction] {
+        return try paymentManager.getTransactions(for: customerId)
+    }
+    
+    func getRestaurantTransactions(restaurantId: String) async throws -> [PaymentTransaction] {
+        return try paymentManager.getTransactions(for: restaurantId)
+    }
+    
+    func getDriverTransactions(driverId: String) async throws -> [PaymentTransaction] {
+        return try paymentManager.getTransactions(for: driverId)
+    }
+}
+```
+
+## 2. UPDATE PAYMENT METHODS VIEW
+
+Update your `PaymentMethodsView.swift`:
+
+```swift
+import SwiftUI
+
+struct PaymentMethodsView: View {
+    @StateObject private var viewModel = PaymentMethodsViewModel()
+    @State private var showingAddCard = false
+    
+    var body: some View {
+        List {
+            Section(header: Text("Payment Methods")) {
+                ForEach(viewModel.paymentMethods, id: \.id) { method in
+                    PaymentMethodRow(method: method)
+                }
+                .onDelete(perform: viewModel.deletePaymentMethod)
+                
+                Button(action: { showingAddCard = true }) {
+                    Label("Add Payment Method", systemImage: "plus.circle")
+                }
+            }
+            
+            if !viewModel.walletBalance.isZero {
+                Section(header: Text("Wallet")) {
+                    HStack {
+                        Text("Available Balance")
+                        Spacer()
+                        Text("$\(viewModel.walletBalance, specifier: "%.2f")")
+                            .fontWeight(.bold)
+                    }
+                }
+            }
+        }
+        .navigationTitle("Payment Methods")
+        .onAppear {
+            Task {
+                await viewModel.loadPaymentMethods()
+                await viewModel.loadWalletBalance()
+            }
+        }
+        .sheet(isPresented: $showingAddCard) {
+            AddCardView(onSave: { newCard in
+                Task {
+                    await viewModel.addPaymentMethod(newCard)
+                }
+            })
+        }
+    }
+}
+
+class PaymentMethodsViewModel: ObservableObject {
+    @Published var paymentMethods: [PaymentMethod] = []
+    @Published var walletBalance: Decimal = 0
+    
+    private let userId = UserManager.shared.currentUser?.id ?? ""
+    
+    func loadPaymentMethods() async {
+        // Implement using Vizion Gateway API
+        // This is a placeholder implementation
+        do {
+            // Load payment methods from local storage for now
+            // In the future, this will use Vizion Gateway API
+            let methods = try await loadStoredPaymentMethods()
+            DispatchQueue.main.async {
+                self.paymentMethods = methods
+            }
+        } catch {
+            print("Error loading payment methods: \(error)")
+        }
+    }
+    
+    func loadWalletBalance() async {
+        do {
+            // Get wallet transactions to calculate balance
+            let transactions = try await PaymentManager.shared.getTransactions(
+                for: userId
+            )
+            
+            // Calculate balance from transactions
+            let balance = calculateBalanceFromTransactions(transactions)
+            
+            DispatchQueue.main.async {
+                self.walletBalance = balance
+            }
+        } catch {
+            print("Error loading wallet balance: \(error)")
+        }
+    }
+    
+    func addPaymentMethod(_ method: PaymentMethod) async {
+        // Save payment method
+        // This is a placeholder implementation
+        do {
+            // In the future, this will use Vizion Gateway API
+            try await savePaymentMethod(method)
+            await loadPaymentMethods()
+        } catch {
+            print("Error adding payment method: \(error)")
+        }
+    }
+    
+    func deletePaymentMethod(at offsets: IndexSet) {
+        // Delete payment method
+        // This is a placeholder implementation
+    }
+    
+    // Helper methods
+    private func loadStoredPaymentMethods() async throws -> [PaymentMethod] {
+        // Placeholder implementation
+        return []
+    }
+    
+    private func savePaymentMethod(_ method: PaymentMethod) async throws {
+        // Placeholder implementation
+    }
+    
+    private func calculateBalanceFromTransactions(_ transactions: [PaymentTransaction]) -> Decimal {
+        var balance: Decimal = 0
+        
+        for transaction in transactions {
+            if transaction.destinationId == userId && transaction.status == .completed {
+                balance += transaction.amount
+            } else if transaction.sourceId == userId && transaction.status == .completed {
+                balance -= transaction.amount
+            }
+        }
+        
+        return balance
+    }
+}
+```
+
+## 3. UPDATE CHECKOUT VIEW
+
+Update your `CheckoutView.swift`:
+
+```swift
+import SwiftUI
+
+struct CheckoutView: View {
+    @StateObject private var viewModel: CheckoutViewModel
+    @State private var isProcessing = false
+    @State private var showingError = false
+    @State private var errorMessage = ""
+    
+    init(order: Order) {
+        _viewModel = StateObject(wrappedValue: CheckoutViewModel(order: order))
+    }
+    
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                // Order summary section
+                OrderSummaryView(order: viewModel.order)
+                
+                // Payment method selection
+                PaymentMethodSelectionView(
+                    selectedMethod: $viewModel.selectedPaymentMethod,
+                    paymentMethods: viewModel.paymentMethods
+                )
+                
+                // Loyalty points section
+                if viewModel.availableLoyaltyPoints > 0 {
+                    LoyaltyPointsView(
+                        availablePoints: viewModel.availableLoyaltyPoints,
+                        usePoints: $viewModel.usePoints
+                    )
+                }
+                
+                // Total section with breakdown
+                TotalSectionView(
+                    subtotal: viewModel.order.subtotal,
+                    tax: viewModel.order.tax,
+                    deliveryFee: viewModel.order.deliveryFee,
+                    discount: viewModel.discount,
+                    total: viewModel.total
+                )
+                
+                // Pay button
+                Button(action: processPayment) {
+                    if isProcessing {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle())
+                    } else {
+                        Text("Pay \(viewModel.total, format: .currency(code: "XCD"))")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isProcessing || viewModel.selectedPaymentMethod == nil)
+                .padding(.top)
+            }
+            .padding()
+        }
+        .navigationTitle("Checkout")
+        .onAppear {
+            Task {
+                await viewModel.loadPaymentMethods()
+                await viewModel.loadLoyaltyPoints()
+            }
+        }
+        .alert("Payment Error", isPresented: $showingError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(errorMessage)
+        }
+    }
+    
+    private func processPayment() {
+        guard let paymentMethod = viewModel.selectedPaymentMethod else { return }
+        
+        isProcessing = true
+        
+        Task {
+            do {
+                let result = try await viewModel.processPayment(using: paymentMethod)
+                
+                // Handle successful payment
+                if result.status == .completed {
+                    // Navigate to success screen
+                    DispatchQueue.main.async {
+                        isProcessing = false
+                        // Navigate to receipt or confirmation
+                    }
+                } else {
+                    // Handle pending or other status
+                    DispatchQueue.main.async {
+                        isProcessing = false
+                        errorMessage = "Payment status: \(result.status.rawValue)"
+                        showingError = true
+                    }
+                }
+            } catch {
+                // Handle payment error
+                DispatchQueue.main.async {
+                    isProcessing = false
+                    errorMessage = error.localizedDescription
+                    showingError = true
+                }
+            }
+        }
+    }
+}
+
+class CheckoutViewModel: ObservableObject {
+    @Published var order: Order
+    @Published var paymentMethods: [PaymentMethod] = []
+    @Published var selectedPaymentMethod: PaymentMethod?
+    @Published var availableLoyaltyPoints: Int = 0
+    @Published var usePoints: Bool = false
+    
+    private let paymentHandler = PaymentHandler.shared
+    private let userId = UserManager.shared.currentUser?.id ?? ""
+    
+    var discount: Double {
+        usePoints ? min(Double(availableLoyaltyPoints) / 20, order.subtotal * 0.5) : 0
+    }
+    
+    var total: Double {
+        order.subtotal + order.tax + order.deliveryFee - discount
+    }
+    
+    init(order: Order) {
+        self.order = order
+    }
+    
+    func loadPaymentMethods() async {
+        // Load payment methods
+        // This is a placeholder implementation
+    }
+    
+    func loadLoyaltyPoints() async {
+        // Load loyalty points
+        // This is a placeholder implementation
+    }
+    
+    func processPayment(using method: PaymentMethod) async throws -> PaymentResult {
+        // Convert payment method to Vizion Gateway format
+        let paymentType: PaymentType
+        switch method.type {
+        case "card":
+            paymentType = .card
+        case "apple_pay":
+            paymentType = .applePay
+        case "wallet":
+            paymentType = .wallet
+        default:
+            paymentType = .card
+        }
+        
+        // Process payment
+        let result = try await paymentHandler.processPayment(
+            amount: total,
+            paymentType: paymentType,
+            orderId: order.id,
+            customerId: userId,
+            restaurantId: order.restaurantId
+        )
+        
+        // If payment successful, update loyalty points
+        if result.status == .completed {
+            // Calculate earned points (1 point per dollar spent)
+            let earnedPoints = Int(total)
+            
+            // Deduct used points if applicable
+            let pointsToDeduct = usePoints ? min(availableLoyaltyPoints, Int(discount * 20)) : 0
+            
+            // Update loyalty points in user profile
+            try await updateLoyaltyPoints(earned: earnedPoints, used: pointsToDeduct)
+            
+            // Update order status
+            try await updateOrderStatus(status: .paid)
+        }
+        
+        return result
+    }
+    
+    private func updateLoyaltyPoints(earned: Int, used: Int) async throws {
+        // Update loyalty points
+        // This is a placeholder implementation
+    }
+    
+    private func updateOrderStatus(status: OrderStatus) async throws {
+        // Update order status
+        // This is a placeholder implementation
+    }
+}
+```
+
+## 4. ADD CURRENCY SUPPORT
+
+Add XCD currency to the Currency enum in `PaymentModels.swift`:
+
+```swift
+enum Currency: String, Codable {
+    case usd = "USD"
+    case eur = "EUR"
+    case gbp = "GBP"
+    case xcd = "XCD"  // Add Eastern Caribbean Dollar
+}
+```
+
+## 5. IMPLEMENT WEBHOOK HANDLER
+
+Create a new file `WebhookHandler.swift`:
+
+```swift
+import Foundation
+
+class WebhookHandler {
+    static let shared = WebhookHandler()
+    private let webhookSecret: String
+    
+    private init() {
+        // Load webhook secret from secure storage
+        self.webhookSecret = loadWebhookSecret()
+    }
+    
+    func handleWebhook(request: URLRequest) async throws -> HTTPURLResponse {
+        // Extract request body
+        guard let body = request.httpBody else {
+            return HTTPURLResponse(url: request.url!, statusCode: 400, httpVersion: nil, headerFields: nil)!
+        }
+        
+        // Extract signature
+        guard let signature = request.value(forHTTPHeaderField: "X-Vizion-Signature") else {
+            return HTTPURLResponse(url: request.url!, statusCode: 400, httpVersion: nil, headerFields: nil)!
+        }
+        
+        // Verify signature
+        let isValid = WebhookManager.shared.verifySignature(
+            payload: body,
+            signature: signature,
+            secret: webhookSecret
+        )
+        
+        guard isValid else {
+            return HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!
+        }
+        
+        // Extract event type
+        guard let eventType = request.value(forHTTPHeaderField: "X-Vizion-Event") else {
+            return HTTPURLResponse(url: request.url!, statusCode: 400, httpVersion: nil, headerFields: nil)!
+        }
+        
+        // Parse payload
+        guard let payload = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else {
+            return HTTPURLResponse(url: request.url!, statusCode: 400, httpVersion: nil, headerFields: nil)!
+        }
+        
+        // Process webhook based on event type
+        switch eventType {
+        case "payment.succeeded":
+            try await handlePaymentSucceeded(payload)
+        case "payment.failed":
+            try await handlePaymentFailed(payload)
+        case "refund.processed":
+            try await handleRefundProcessed(payload)
+        case "wallet.updated":
+            try await handleWalletUpdated(payload)
+        default:
+            // Unknown event type
+            return HTTPURLResponse(url: request.url!, statusCode: 422, httpVersion: nil, headerFields: nil)!
+        }
+        
+        return HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+    }
+    
+    // MARK: - Event Handlers
+    
+    private func handlePaymentSucceeded(_ payload: [String: Any]) async throws {
+        guard let metadata = payload["metadata"] as? [String: String],
+              let orderId = metadata["order_id"],
+              let app = metadata["app"],
+              app == "chef_reloaded" else {
+            return
+        }
+        
+        // Update order status
+        try await updateOrderStatus(orderId: orderId, status: .paid)
+        
+        // Process loyalty points if applicable
+        if let loyaltyPointsStr = metadata["loyalty_points"],
+           let loyaltyPoints = Int(loyaltyPointsStr),
+           let userId = payload["source_id"] as? String {
+            try await addLoyaltyPoints(userId: userId, points: loyaltyPoints)
+        }
+        
+        // Send push notification to user
+        if let userId = payload["source_id"] as? String,
+           let amountStr = payload["amount"] as? String,
+           let amount = Double(amountStr) {
+            try await sendPaymentNotification(userId: userId, amount: amount)
+        }
+    }
+    
+    private func handlePaymentFailed(_ payload: [String: Any]) async throws {
+        guard let metadata = payload["metadata"] as? [String: String],
+              let orderId = metadata["order_id"],
+              let app = metadata["app"],
+              app == "chef_reloaded" else {
+            return
+        }
+        
+        // Update order status
+        try await updateOrderStatus(orderId: orderId, status: .paymentFailed)
+        
+        // Send push notification to user
+        if let userId = payload["source_id"] as? String {
+            try await sendPaymentFailedNotification(userId: userId)
+        }
+    }
+    
+    private func handleRefundProcessed(_ payload: [String: Any]) async throws {
+        guard let metadata = payload["metadata"] as? [String: String],
+              let originalTransactionId = metadata["original_transaction"],
+              let app = metadata["app"],
+              app == "chef_reloaded" else {
+            return
+        }
+        
+        // Update original order status
+        try await updateOrderByTransactionId(transactionId: originalTransactionId, status: .refunded)
+        
+        // Process loyalty points refund if applicable
+        if let loyaltyPointsStr = metadata["loyalty_points"],
+           let loyaltyPoints = Int(loyaltyPointsStr),
+           let userId = payload["destination_id"] as? String {
+            try await deductLoyaltyPoints(userId: userId, points: loyaltyPoints)
+        }
+        
+        // Send push notification to user
+        if let userId = payload["destination_id"] as? String,
+           let amountStr = payload["amount"] as? String,
+           let amount = Double(amountStr) {
+            try await sendRefundNotification(userId: userId, amount: amount)
+        }
+    }
+    
+    private func handleWalletUpdated(_ payload: [String: Any]) async throws {
+        // Update wallet UI if user is currently viewing wallet
+        if let userId = payload["user_id"] as? String {
+            try await notifyWalletUpdate(userId: userId)
+        }
+    }
+    
+    // MARK: - Helper Methods
+    
+    private func loadWebhookSecret() -> String {
+        // Load webhook secret from secure storage
+        // This is a placeholder implementation
+        return "your_webhook_secret"
+    }
+    
+    private func updateOrderStatus(orderId: String, status: OrderStatus) async throws {
+        // Update order status in database
+        // This is a placeholder implementation
+    }
+    
+    private func updateOrderByTransactionId(transactionId: String, status: OrderStatus) async throws {
+        // Find order by transaction ID and update status
+        // This is a placeholder implementation
+    }
+    
+    private func addLoyaltyPoints(userId: String, points: Int) async throws {
+        // Add loyalty points to user profile
+        // This is a placeholder implementation
+    }
+    
+    private func deductLoyaltyPoints(userId: String, points: Int) async throws {
+        // Deduct loyalty points from user profile
+        // This is a placeholder implementation
+    }
+    
+    private func sendPaymentNotification(userId: String, amount: Double) async throws {
+        // Send push notification about successful payment
+        // This is a placeholder implementation
+    }
+    
+    private func sendPaymentFailedNotification(userId: String) async throws {
+        // Send push notification about failed payment
+        // This is a placeholder implementation
+    }
+    
+    private func sendRefundNotification(userId: String, amount: Double) async throws {
+        // Send push notification about refund
+        // This is a placeholder implementation
+    }
+    
+    private func notifyWalletUpdate(userId: String) async throws {
+        // Notify app about wallet update
+        // This is a placeholder implementation
+    }
+}
+```
+
+## 6. IMPLEMENT LOYALTY SYSTEM
+
+Create a new file `LoyaltyManager.swift`:
+
+```swift
+import Foundation
+
+class LoyaltyManager {
+    static let shared = LoyaltyManager()
+    
+    // MARK: - Loyalty Tiers
+    
+    enum LoyaltyTier: String {
+        case bronze = "Bronze"
+        case silver = "Silver"
+        case gold = "Gold"
+        case platinum = "Platinum"
+        
+        var pointThreshold: Int {
+            switch self {
+            case .bronze: return 0
+            case .silver: return 501
+            case .gold: return 1001
+            case .platinum: return 2001
+            }
+        }
+        
+        var benefits: [String] {
+            switch self {
+            case .bronze:
+                return ["Free delivery on orders over $50"]
+            case .silver:
+                return ["Free delivery on orders over $35", "5% cashback"]
+            case .gold:
+                return ["Free delivery on all orders", "7% cashback", "Priority support"]
+            case .platinum:
+                return ["Free delivery on all orders", "10% cashback", "VIP support", "Early access to deals"]
+            }
+        }
+    }
+    
+    // MARK: - Points Management
+    
+    func getUserPoints(userId: String) async throws -> Int {
+        // Get user points from database
+        // This is a placeholder implementation
+        return 0
+    }
+    
+    func getUserTier(userId: String) async throws -> LoyaltyTier {
+        let points = try await getUserPoints(userId: userId)
+        
+        if points >= LoyaltyTier.platinum.pointThreshold {
+            return .platinum
+        } else if points >= LoyaltyTier.gold.pointThreshold {
+            return .gold
+        } else if points >= LoyaltyTier.silver.pointThreshold {
+            return .silver
+        } else {
+            return .bronze
+        }
+    }
+    
+    func addPoints(userId: String, points: Int) async throws {
+        // Add points to user profile
+        // This is a placeholder implementation
+    }
+    
+    func usePoints(userId: String, points: Int) async throws {
+        // Use points from user profile
+        // This is a placeholder implementation
+    }
+    
+    func calculateDeliveryFee(userId: String, orderTotal: Double) async throws -> Double {
+        let tier = try await getUserTier(userId: userId)
+        
+        switch tier {
+        case .bronze:
+            return orderTotal >= 50 ? 0 : 10
+        case .silver:
+            return orderTotal >= 35 ? 0 : 10
+        case .gold, .platinum:
+            return 0
+        }
+    }
+    
+    func calculateCashback(userId: String, orderTotal: Double) async throws -> Double {
+        let tier = try await getUserTier(userId: userId)
+        
+        switch tier {
+        case .bronze:
+            return 0
+        case .silver:
+            return orderTotal * 0.05
+        case .gold:
+            return orderTotal * 0.07
+        case .platinum:
+            return orderTotal * 0.1
+        }
+    }
+}
+```
+
+## 7. IMPLEMENT SUBSCRIPTION SYSTEM
+
+Create a new file `SubscriptionManager.swift`:
+
+```swift
+import Foundation
+
+class SubscriptionManager {
+    static let shared = SubscriptionManager()
+    
+    // MARK: - Subscription Tiers
+    
+    enum SubscriptionTier: String {
+        case basic = "Basic"
+        case premium = "Premium"
+        case vip = "VIP"
+        case elite = "Elite"
+        
+        var monthlyPrice: Double {
+            switch self {
+            case .basic: return 50
+            case .premium: return 100
+            case .vip: return 200
+            case .elite: return 500
+            }
+        }
+        
+        var freeDeliveries: Int {
+            switch self {
+            case .basic: return 1
+            case .premium: return 3
+            case .vip: return 10
+            case .elite: return Int.max // Unlimited
+            }
+        }
+        
+        var benefits: [String] {
+            var benefits = ["Access to exclusive deals"]
+            
+            switch self {
+            case .basic:
+                benefits.append("1 free delivery per month")
+            case .premium:
+                benefits.append("3 free deliveries per month")
+            case .vip:
+                benefits.append("10 free deliveries per month")
+            case .elite:
+                benefits.append("Unlimited free deliveries")
+                benefits.append("Priority customer support")
+                benefits.append("Early access to new restaurants")
+            }
+            
+            return benefits
+        }
+    }
+    
+    // MARK: - Subscription Management
+    
+    func getUserSubscription(userId: String) async throws -> SubscriptionTier? {
+        // Get user subscription from database
+        // This is a placeholder implementation
+        return nil
+    }
+    
+    func subscribe(userId: String, tier: SubscriptionTier) async throws {
+        // Create a recurring payment for subscription
+        try await createSubscriptionPayment(userId: userId, tier: tier)
+        
+        // Save subscription to database
+        // This is a placeholder implementation
+    }
+    
+    func cancelSubscription(userId: String) async throws {
+        // Cancel subscription in database
+        // This is a placeholder implementation
+    }
+    
+    func getRemainingDeliveries(userId: String) async throws -> Int {
+        // Get remaining free deliveries for current month
+        // This is a placeholder implementation
+        return 0
+    }
+    
+    func useDelivery(userId: String) async throws {
+        // Use one free delivery
+        // This is a placeholder implementation
+    }
+    
+    // MARK: - Payment Processing
+    
+    private func createSubscriptionPayment(userId: String, tier: SubscriptionTier) async throws {
+        // Process subscription payment using Vizion Gateway
+        let paymentManager = PaymentManager.shared
+        
+        // Use a special merchant ID for subscriptions
+        let subscriptionMerchantId = "subscription_merchant_id"
+        
+        // Process payment
+        let result = try await paymentManager.processPayment(
+            amount: Decimal(tier.monthlyPrice),
+            currency: .xcd,
+            method: .card, // Default to card, but should use user's preferred method
+            sourceId: userId,
+            destinationId: subscriptionMerchantId,
+            metadata: [
+                "subscription_tier": tier.rawValue,
+                "billing_cycle": "monthly",
+                "app": "chef_reloaded"
+            ]
+        )
+        
+        // Verify payment success
+        guard result.status == .completed else {
+            throw SubscriptionError.paymentFailed(result.errorMessage ?? "Unknown error")
+        }
+    }
+}
+
+enum SubscriptionError: Error {
+    case paymentFailed(String)
+    case alreadySubscribed
+    case notSubscribed
+    case invalidTier
+}
+```
+
+## 8. SETUP WEBHOOK ENDPOINT
+
+Register your webhook endpoint with Vizion Gateway:
+
+```swift
+// Add this to your app initialization code
+func setupWebhooks() async throws {
+    let webhookManager = WebhookManager.shared
+    
+    // Your business ID in Vizion Gateway
+    let businessId = "your_business_id"
+    
+    // Your webhook URL
+    let webhookUrl = "https://your-chef-app.com/api/webhooks"
+    
+    // Register webhook endpoint
+    let endpoint = try await webhookManager.createEndpoint(
+        businessId: businessId,
+        url: webhookUrl,
+        events: [
+            .transactionCreated,
+            .transactionCompleted,
+            .transactionFailed,
+            .walletUpdated
+        ]
+    )
+    
+    // Store webhook secret securely
+    try storeWebhookSecret(endpoint.secret)
+}
+
+func storeWebhookSecret(_ secret: String) throws {
+    // Store webhook secret in secure storage
+    // This is a placeholder implementation
+}
+```
+
+## 9. MIGRATION STEPS
+
+1. Add Vizion Gateway SDK to your project
+2. Implement the code changes above
+3. Test in sandbox environment
+4. Migrate existing data
+5. Deploy to production
+
+## 10. TESTING CHECKLIST
+
+- [ ] Process a payment with card
+- [ ] Process a payment with Apple Pay
+- [ ] Process a payment with wallet
+- [ ] Process a refund
+- [ ] Verify webhook handling
+- [ ] Verify loyalty points accrual
+- [ ] Verify subscription billing
+- [ ] Verify transaction history
+- [ ] Test error scenarios
+
+## 11. COMMON ERRORS AND SOLUTIONS
+
+1. **Invalid API Token**
+   - Ensure API token is valid and not expired
+   - Check IP restrictions
+
+2. **Webhook Signature Verification Failed**
+   - Ensure webhook secret is correctly stored
+   - Verify signature calculation
+
+3. **Transaction Failed**
+   - Check payment method details
+   - Verify sufficient funds
+   - Check for fraud detection triggers
+
+4. **Missing Transaction Data**
+   - Ensure all required fields are provided
+   - Check metadata formatting
+
+## 12. SUPPORT CONTACTS
+
+For implementation support, contact:
+- Technical Support: support@viziongateway.com
+- API Documentation: https://docs.viziongateway.com
+- Developer Portal: https://developers.viziongateway.com 

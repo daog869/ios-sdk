@@ -1,0 +1,466 @@
+# VIZION GATEWAY API & WEBHOOK SAMPLES FOR CHEF RELOADED
+
+This document provides sample API calls and webhook payloads for the Vizion Gateway integration with Chef Reloaded.
+
+## API TOKEN SETUP
+
+```swift
+// Initialize API token manager
+let tokenManager = APITokenManager.shared
+
+// Create a new API token for Chef Reloaded
+let token = try await tokenManager.createToken(
+    businessId: "chef_reloaded_business",
+    name: "Chef Reloaded Production API Key",
+    scopes: [.read, .write, .transactions, .webhooks],
+    ipRestrictions: ["203.0.113.1", "203.0.113.2"], // Your app server IPs
+    webhookUrl: "https://api.chefreloaded.com/webhooks/vizion",
+    expiresAt: Calendar.current.date(byAdding: .year, value: 1, to: Date()) // 1 year expiration
+)
+
+// Store this token securely - you'll only see it once
+print("API Token: \(token.token)")
+print("Secret: \(token.secret)")
+```
+
+## SAMPLE API CALLS
+
+### 1. Process a Payment
+
+```swift
+// Swift code
+let result = try await PaymentManager.shared.processPayment(
+    amount: Decimal(100.50),
+    currency: .xcd,
+    method: .card,
+    sourceId: "customer_12345",
+    destinationId: "restaurant_6789",
+    metadata: [
+        "order_id": "order_123456789",
+        "loyalty_points": "101",
+        "app": "chef_reloaded",
+        "items": "3",
+        "delivery_fee": "10.00"
+    ]
+)
+
+// REST API equivalent
+// POST https://api.viziongateway.com/v1/payments
+{
+  "amount": 100.50,
+  "currency": "XCD",
+  "method": "card",
+  "source_id": "customer_12345",
+  "destination_id": "restaurant_6789",
+  "metadata": {
+    "order_id": "order_123456789",
+    "loyalty_points": "101",
+    "app": "chef_reloaded",
+    "items": "3",
+    "delivery_fee": "10.00"
+  }
+}
+
+// Sample successful response
+{
+  "status": "completed",
+  "transaction_id": "tx_8f7d6e5c4b3a2910",
+  "provider_reference": "ch_1234567890abcdef",
+  "metadata": {
+    "order_id": "order_123456789",
+    "loyalty_points": "101",
+    "app": "chef_reloaded",
+    "items": "3",
+    "delivery_fee": "10.00"
+  }
+}
+```
+
+### 2. Process a Refund
+
+```swift
+// Swift code
+let refund = try await PaymentManager.shared.refundPayment(
+    transactionId: "tx_8f7d6e5c4b3a2910",
+    amount: Decimal(50.25) // Partial refund
+)
+
+// REST API equivalent
+// POST https://api.viziongateway.com/v1/refunds
+{
+  "transaction_id": "tx_8f7d6e5c4b3a2910",
+  "amount": 50.25
+}
+
+// Sample successful response
+{
+  "status": "completed",
+  "transaction_id": "tx_refund_1a2b3c4d5e6f",
+  "provider_reference": "re_1234567890abcdef",
+  "metadata": {
+    "original_transaction": "tx_8f7d6e5c4b3a2910"
+  }
+}
+```
+
+### 3. Get Transaction History
+
+```swift
+// Swift code
+let transactions = try await PaymentManager.shared.getTransactions(
+    for: "customer_12345",
+    type: .charge,
+    status: .completed,
+    from: Calendar.current.date(byAdding: .month, value: -1, to: Date()), // Last month
+    to: Date()
+)
+
+// REST API equivalent
+// GET https://api.viziongateway.com/v1/transactions?user_id=customer_12345&type=charge&status=completed&from=2023-05-01T00:00:00Z&to=2023-06-01T00:00:00Z
+
+// Sample response
+{
+  "transactions": [
+    {
+      "id": "tx_8f7d6e5c4b3a2910",
+      "amount": 100.50,
+      "currency": "XCD",
+      "status": "completed",
+      "type": "charge",
+      "method": "card",
+      "source_id": "customer_12345",
+      "destination_id": "restaurant_6789",
+      "created_at": "2023-05-15T14:30:45Z",
+      "completed_at": "2023-05-15T14:31:02Z",
+      "metadata": {
+        "order_id": "order_123456789",
+        "loyalty_points": "101"
+      }
+    },
+    {
+      "id": "tx_7e6d5c4b3a291087",
+      "amount": 75.25,
+      "currency": "XCD",
+      "status": "completed",
+      "type": "charge",
+      "method": "apple_pay",
+      "source_id": "customer_12345",
+      "destination_id": "restaurant_5432",
+      "created_at": "2023-05-10T18:22:15Z",
+      "completed_at": "2023-05-10T18:22:30Z",
+      "metadata": {
+        "order_id": "order_987654321",
+        "loyalty_points": "75"
+      }
+    }
+  ],
+  "total_count": 2,
+  "has_more": false
+}
+```
+
+### 4. Get Wallet Balance
+
+```swift
+// Swift code - Calculate from transactions
+let transactions = try await PaymentManager.shared.getTransactions(
+    for: "customer_12345"
+)
+
+var balance: Decimal = 0
+for transaction in transactions {
+    if transaction.destinationId == "customer_12345" && transaction.status == .completed {
+        balance += transaction.amount
+    } else if transaction.sourceId == "customer_12345" && transaction.status == .completed {
+        balance -= transaction.amount
+    }
+}
+
+// REST API equivalent
+// GET https://api.viziongateway.com/v1/wallets/customer_12345/balance
+
+// Sample response
+{
+  "user_id": "customer_12345",
+  "balance": 250.75,
+  "currency": "XCD",
+  "last_updated": "2023-06-01T12:34:56Z"
+}
+```
+
+### 5. Create Subscription Payment
+
+```swift
+// Swift code
+let result = try await PaymentManager.shared.processPayment(
+    amount: Decimal(100.00),
+    currency: .xcd,
+    method: .card,
+    sourceId: "customer_12345",
+    destinationId: "chef_reloaded_subscriptions",
+    metadata: [
+        "subscription_tier": "premium",
+        "billing_cycle": "monthly",
+        "period_start": "2023-06-01",
+        "period_end": "2023-07-01",
+        "app": "chef_reloaded"
+    ]
+)
+
+// REST API equivalent
+// POST https://api.viziongateway.com/v1/payments
+{
+  "amount": 100.00,
+  "currency": "XCD",
+  "method": "card",
+  "source_id": "customer_12345",
+  "destination_id": "chef_reloaded_subscriptions",
+  "metadata": {
+    "subscription_tier": "premium",
+    "billing_cycle": "monthly",
+    "period_start": "2023-06-01",
+    "period_end": "2023-07-01",
+    "app": "chef_reloaded"
+  }
+}
+```
+
+## WEBHOOK SAMPLES
+
+### 1. Register Webhook Endpoint
+
+```swift
+// Swift code
+let endpoint = try await WebhookManager.shared.createEndpoint(
+    businessId: "chef_reloaded_business",
+    url: "https://api.chefreloaded.com/webhooks/vizion",
+    events: [
+        .transactionCreated,
+        .transactionCompleted,
+        .transactionFailed,
+        .refundProcessed,
+        .refundFailed,
+        .walletUpdated
+    ]
+)
+
+// Store this secret securely - you'll need it to verify webhooks
+print("Webhook Secret: \(endpoint.secret)")
+
+// REST API equivalent
+// POST https://api.viziongateway.com/v1/webhook-endpoints
+{
+  "business_id": "chef_reloaded_business",
+  "url": "https://api.chefreloaded.com/webhooks/vizion",
+  "events": [
+    "transaction.created",
+    "transaction.completed",
+    "transaction.failed",
+    "refund.processed",
+    "refund.failed",
+    "wallet.updated"
+  ]
+}
+
+// Sample response
+{
+  "id": "we_1a2b3c4d5e6f7g8h",
+  "url": "https://api.chefreloaded.com/webhooks/vizion",
+  "secret": "whsec_abcdefghijklmnopqrstuvwxyz123456789",
+  "events": [
+    "transaction.created",
+    "transaction.completed",
+    "transaction.failed",
+    "refund.processed",
+    "refund.failed",
+    "wallet.updated"
+  ],
+  "created_at": "2023-06-01T00:00:00Z"
+}
+```
+
+### 2. Sample Webhook Payloads
+
+#### Payment Succeeded Webhook
+
+```json
+// Headers
+X-Vizion-Signature: sha256=5257a869e7ecebeda32affa62cdca3fa51cad7e77a0e56ff536d0ce8e1e13a21
+X-Vizion-Event: payment.succeeded
+
+// Body
+{
+  "event": "payment.succeeded",
+  "timestamp": "2023-06-01T12:34:56Z",
+  "transaction_id": "tx_8f7d6e5c4b3a2910",
+  "amount": "100.50",
+  "currency": "XCD",
+  "status": "completed",
+  "type": "charge",
+  "method": "card",
+  "source_id": "customer_12345",
+  "destination_id": "restaurant_6789",
+  "provider_reference": "ch_1234567890abcdef",
+  "metadata": {
+    "order_id": "order_123456789",
+    "loyalty_points": "101",
+    "app": "chef_reloaded",
+    "items": "3",
+    "delivery_fee": "10.00"
+  }
+}
+```
+
+#### Payment Failed Webhook
+
+```json
+// Headers
+X-Vizion-Signature: sha256=7e9c4e1d8f2a5b6c3d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0
+X-Vizion-Event: payment.failed
+
+// Body
+{
+  "event": "payment.failed",
+  "timestamp": "2023-06-01T12:35:22Z",
+  "transaction_id": "tx_failed_1a2b3c4d5e",
+  "amount": "150.75",
+  "currency": "XCD",
+  "status": "failed",
+  "type": "charge",
+  "method": "card",
+  "source_id": "customer_12345",
+  "destination_id": "restaurant_6789",
+  "error_message": "Card was declined",
+  "metadata": {
+    "order_id": "order_987654321",
+    "loyalty_points": "151",
+    "app": "chef_reloaded"
+  }
+}
+```
+
+#### Refund Processed Webhook
+
+```json
+// Headers
+X-Vizion-Signature: sha256=1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r9s0t1u2v3w4x5y6z7
+X-Vizion-Event: refund.processed
+
+// Body
+{
+  "event": "refund.processed",
+  "timestamp": "2023-06-02T09:15:30Z",
+  "transaction_id": "tx_refund_1a2b3c4d5e6f",
+  "amount": "50.25",
+  "currency": "XCD",
+  "status": "completed",
+  "type": "refund",
+  "method": "card",
+  "source_id": "restaurant_6789",
+  "destination_id": "customer_12345",
+  "provider_reference": "re_1234567890abcdef",
+  "metadata": {
+    "original_transaction": "tx_8f7d6e5c4b3a2910",
+    "reason": "customer_request",
+    "app": "chef_reloaded"
+  }
+}
+```
+
+#### Wallet Updated Webhook
+
+```json
+// Headers
+X-Vizion-Signature: sha256=9z8y7x6w5v4u3t2s1r0q9p8o7n6m5l4k3j2i1h0g9f8e7d6c5b4a3
+X-Vizion-Event: wallet.updated
+
+// Body
+{
+  "event": "wallet.updated",
+  "timestamp": "2023-06-03T14:22:45Z",
+  "user_id": "customer_12345",
+  "balance": "250.75",
+  "currency": "XCD",
+  "transaction_id": "tx_7e6d5c4b3a291087",
+  "metadata": {
+    "app": "chef_reloaded"
+  }
+}
+```
+
+### 3. Verifying Webhook Signatures
+
+```swift
+// Swift code
+func verifyWebhookSignature(payload: Data, signature: String, secret: String) -> Bool {
+    let computedSignature = WebhookManager.shared.generateSignature(for: payload, secret: secret)
+    return signature == "sha256=\(computedSignature)"
+}
+
+// Example usage in webhook handler
+func handleWebhook(request: URLRequest) async throws -> HTTPURLResponse {
+    guard let body = request.httpBody,
+          let signature = request.value(forHTTPHeaderField: "X-Vizion-Signature") else {
+        return HTTPURLResponse(url: request.url!, statusCode: 400, httpVersion: nil, headerFields: nil)!
+    }
+    
+    // Load webhook secret from secure storage
+    let webhookSecret = loadWebhookSecret()
+    
+    // Verify signature
+    let isValid = verifyWebhookSignature(payload: body, signature: signature, secret: webhookSecret)
+    
+    guard isValid else {
+        return HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!
+    }
+    
+    // Process webhook...
+    // ...
+    
+    return HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+}
+```
+
+## TESTING CREDENTIALS
+
+Use these credentials in the sandbox environment:
+
+### API Keys
+- Business ID: `chef_reloaded_test`
+- API Key: `vg_test_key_1a2b3c4d5e6f7g8h9i0j`
+- API Secret: `vg_test_secret_9i8h7g6f5e4d3c2b1a0z`
+
+### Test Cards
+- Test Card (Success): `4242 4242 4242 4242`
+- Test Card (Decline): `4000 0000 0000 0002`
+- Test Card (Insufficient Funds): `4000 0000 0000 9995`
+- Expiry Date: Any future date
+- CVV: Any 3 digits
+- ZIP: Any 5 digits
+
+### Test Bank Accounts
+- Account Number: `000123456789`
+- Routing Number: `110000000`
+
+### Webhook Testing
+- Test Webhook URL: `https://webhook.site/` (create a unique URL for testing)
+- Test Secret: `whsec_test_1a2b3c4d5e6f7g8h9i0j`
+
+## IMPLEMENTATION CHECKLIST
+
+- [ ] Set up API token with proper scopes
+- [ ] Configure webhook endpoint
+- [ ] Store webhook secret securely
+- [ ] Implement signature verification
+- [ ] Test payment processing
+- [ ] Test refund processing
+- [ ] Test webhook handling
+- [ ] Verify transaction history
+- [ ] Test error scenarios
+
+## SUPPORT CONTACTS
+
+For API and webhook support, contact:
+- Technical Support: support@viziongateway.com
+- API Documentation: https://docs.viziongateway.com
+- Developer Portal: https://developers.viziongateway.com 

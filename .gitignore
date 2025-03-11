@@ -81,3 +81,64 @@ build/
 
 # dataconnect generated files
 .dataconnect
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# Xcode
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+DerivedData/
+*.moved-aside
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+*.xcuserstate
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# Logs and databases
+*.log
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*~
+
+# Certificates and Keys
+*.cer
+*.p12
+*.mobileprovision
+*.ipa
+*.dSYM.zip
+*.dSYM
+*.pem
+*.key
+*.certSigningRequest
+
+# Environment Variables
+.env
+.env.local
+
+# Build
+build/
+DerivedData/
+*.xcarchive
+*.xcresult

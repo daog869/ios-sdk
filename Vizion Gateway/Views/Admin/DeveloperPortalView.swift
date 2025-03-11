@@ -467,7 +467,7 @@ struct IntegrationGuideView: View {
             
             VStack(alignment: .leading, spacing: 12) {
                 IntegrationStep(number: 1, title: "Generate API Keys", description: "Create API keys for sandbox and production environments.")
-                IntegrationStep(number: 2, title: "Install SDK", description: "Add our SDK to your project using npm, CocoaPods, or direct download.")
+                IntegrationStep(number: 2, title: "Install SDK", description: "Add our SDK to your project using Swift Package Manager.")
                 IntegrationStep(number: 3, title: "Configure SDK", description: "Initialize the SDK with your API key and environment settings.")
                 IntegrationStep(number: 4, title: "Implement Payment Flow", description: "Add payment processing to your application using our SDK methods.")
                 IntegrationStep(number: 5, title: "Test in Sandbox", description: "Thoroughly test your integration in the sandbox environment.")

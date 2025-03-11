@@ -149,21 +149,7 @@ struct SDKDocumentationView: View {
         """
         # Installation
         
-        The Vizion Gateway SDK can be installed through various package managers or directly integrated into your project.
-        
-        ## CocoaPods
-        
-        Add the following to your Podfile:
-        
-        ```ruby
-        pod 'VizionGatewaySDK', '~> 1.0'
-        ```
-        
-        Then run:
-        
-        ```bash
-        pod install
-        ```
+        The Vizion Gateway SDK can be installed through Swift Package Manager.
         
         ## Swift Package Manager
         
@@ -171,15 +157,15 @@ struct SDKDocumentationView: View {
         
         ```swift
         dependencies: [
-            .package(url: "https://github.com/viziongw/sdk-ios.git", from: "1.0.0")
+            .package(url: "https://github.com/daog869/ios-sdk.git", from: "1.0.0")
         ]
         ```
         
-        ## Manual Installation
+        Or in Xcode:
         
-        1. Download the latest release from our [GitHub repository](https://github.com/viziongw/sdk-ios/releases)
-        2. Drag the VizionGatewaySDK.xcframework into your project
-        3. Add the framework to your target's "Frameworks, Libraries, and Embedded Content" section
+        1. Go to File > Add Packages...
+        2. Enter: https://github.com/daog869/ios-sdk.git
+        3. Click "Add Package"
         """
     }
     

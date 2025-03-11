@@ -1,0 +1,82 @@
+// MARK: - General
+"app_name" = "Vizion Gateway";
+"ok" = "OK";
+"cancel" = "Cancel";
+"done" = "Done";
+"error" = "Error";
+"success" = "Success";
+"loading" = "Loading...";
+
+// MARK: - Authentication
+"sign_in" = "Sign In";
+"sign_up" = "Sign Up";
+"sign_out" = "Sign Out";
+"email" = "Email";
+"password" = "Password";
+"confirm_password" = "Confirm Password";
+"forgot_password" = "Forgot Password?";
+"reset_password" = "Reset Password";
+
+// MARK: - Dashboard
+"dashboard" = "Dashboard";
+"transactions" = "Transactions";
+"total_balance" = "Total Balance";
+"recent_activity" = "Recent Activity";
+"view_all" = "View All";
+
+// MARK: - Wallet
+"wallet" = "Wallet";
+"send_money" = "Send Money";
+"receive_money" = "Receive Money";
+"withdraw" = "Withdraw";
+"deposit" = "Deposit";
+"balance" = "Balance";
+"available_balance" = "Available Balance";
+"reserved_balance" = "Reserved Balance";
+
+// MARK: - Transactions
+"transaction_details" = "Transaction Details";
+"transaction_id" = "Transaction ID";
+"amount" = "Amount";
+"date" = "Date";
+"status" = "Status";
+"type" = "Type";
+"description" = "Description";
+"recipient" = "Recipient";
+"sender" = "Sender";
+
+// MARK: - Settings
+"settings" = "Settings";
+"profile" = "Profile";
+"security" = "Security";
+"notifications" = "Notifications";
+"language" = "Language";
+"theme" = "Theme";
+"help" = "Help";
+"about" = "About";
+
+// MARK: - Errors
+"error_invalid_email" = "Please enter a valid email address";
+"error_invalid_password" = "Password must be at least 8 characters";
+"error_passwords_dont_match" = "Passwords don't match";
+"error_network" = "Network error. Please try again";
+"error_unknown" = "An unknown error occurred";
+"error_insufficient_funds" = "Insufficient funds";
+"error_invalid_amount" = "Invalid amount";
+
+// MARK: - Success Messages
+"success_transaction" = "Transaction completed successfully";
+"success_profile_update" = "Profile updated successfully";
+"success_password_reset" = "Password reset email sent";
+
+// MARK: - Notifications
+"notification_new_transaction" = "New transaction received";
+"notification_balance_update" = "Your balance has been updated";
+"notification_security_alert" = "Security alert detected";
+
+// MARK: - Accessibility
+"accessibility_transaction_amount" = "Transaction amount: %@";
+"accessibility_balance" = "Current balance: %@";
+"accessibility_add_money" = "Add money to wallet";
+"accessibility_send_money" = "Send money to recipient";
+"accessibility_transaction_history" = "View transaction history"; 

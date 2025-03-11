@@ -1,0 +1,377 @@
+# CHEF RELOADED TO VIZION GATEWAY PAYMENT SYSTEM MIGRATION PLAN
+
+## Overview
+This document outlines the migration plan for transitioning the Chef Reloaded payment system to the Vizion Gateway payment processor. The plan includes mapping current components to new ones, API integration details, webhook setup, and implementation steps.
+
+## 1. Component Mapping
+
+### Current Chef Reloaded Components → Vizion Gateway Components
+
+| Chef Reloaded Component | Vizion Gateway Component | Migration Notes |
+|-------------------------|--------------------------|-----------------|
+| PaymentHandler.swift | PaymentManager.swift | Replace with Vizion Gateway's PaymentManager |
+| PaymentMethodsView.swift | Update UI to use Vizion Gateway API | Maintain similar UI but connect to new backend |
+| PaymentProcessorAPI.swift | Use Vizion Gateway API | Replace API calls with Vizion Gateway endpoints |
+| CheckoutView.swift | Update to use new payment flow | Maintain UI but update payment processing logic |
+| Firestore Collections | SwiftData Models | Migrate data to SwiftData models |
+
+### Wallet System Migration
+
+| Chef Reloaded Wallet | Vizion Gateway Implementation |
+|----------------------|-------------------------------|
+| Customer Wallet | Map to Vizion Gateway wallet with sourceId/destinationId |
+| Restaurant Wallet | Map to business wallet in Vizion Gateway |
+| Driver Wallet | Map to service provider wallet in Vizion Gateway |
+
+### Loyalty & Subscription Migration
+
+| Chef Reloaded Feature | Vizion Gateway Implementation |
+|----------------------|-------------------------------|
+| Points System | Implement as metadata in transactions |
+| Membership Tiers | Store in user profile with webhook triggers |
+| Subscription Tiers | Implement as recurring payments with metadata |
+
+## 2. API Integration
+
+### Authentication
+
+```swift
+// Initialize API token for your business
+let apiToken = "your_vizion_gateway_api_token"
+
+// Set up API headers
+let headers = [
+    "Authorization": "Bearer \(apiToken)",
+    "Content-Type": "application/json",
+    "X-API-Version": "1.0"
+]
+```
+
+### Payment Processing
+
+```swift
+// Process a payment
+func processPayment(amount: Decimal, currency: Currency, method: PaymentMethod) async throws -> PaymentResult {
+    return try await PaymentManager.shared.processPayment(
+        amount: amount,
+        currency: currency,
+        method: method,
+        sourceId: currentUser.id,
+        destinationId: restaurant.id,
+        metadata: [
+            "order_id": order.id,
+            "loyalty_points": "\(calculatePoints(amount: amount))",
+            "subscription_id": userSubscription?.id ?? ""
+        ]
+    )
+}
+
+// Process a refund
+func processRefund(transactionId: String, amount: Decimal?) async throws -> PaymentResult {
+    return try await PaymentManager.shared.refundPayment(
+        transactionId: transactionId,
+        amount: amount
+    )
+}
+```
+
+### Transaction Queries
+
+```swift
+// Get user transactions
+func getUserTransactions() async throws -> [PaymentTransaction] {
+    return try PaymentManager.shared.getTransactions(
+        for: currentUser.id,
+        type: nil,
+        status: nil,
+        from: nil,
+        to: nil
+    )
+}
+
+// Get restaurant transactions
+func getRestaurantTransactions() async throws -> [PaymentTransaction] {
+    return try PaymentManager.shared.getTransactions(
+        for: restaurant.id,
+        type: nil,
+        status: nil,
+        from: nil,
+        to: nil
+    )
+}
+```
+
+## 3. Webhook Integration
+
+### Webhook Setup
+
+1. Create a webhook endpoint in your backend:
+
+```swift
+// Register webhook endpoint
+let endpoint = try WebhookManager.shared.createEndpoint(
+    businessId: "your_business_id",
+    url: "https://your-chef-app.com/api/webhooks",
+    events: [
+        .transactionCreated,
+        .transactionCompleted,
+        .transactionFailed,
+        .walletUpdated
+    ]
+)
+
+// Store the webhook secret securely
+let webhookSecret = endpoint.secret
+```
+
+2. Implement webhook handler in your backend:
+
+```swift
+func handleWebhook(request: Request) async throws -> Response {
+    // Get request body and signature
+    guard let body = request.body,
+          let signature = request.headers["X-Vizion-Signature"] else {
+        throw WebhookError.invalidRequest
+    }
+    
+    // Verify signature
+    let isValid = WebhookManager.shared.verifySignature(
+        payload: body,
+        signature: signature,
+        secret: webhookSecret
+    )
+    
+    guard isValid else {
+        throw WebhookError.invalidSignature
+    }
+    
+    // Parse event
+    let event = request.headers["X-Vizion-Event"]
+    let payload = try JSONDecoder().decode([String: Any].self, from: body)
+    
+    // Process based on event type
+    switch event {
+    case "transaction.created":
+        await handleTransactionCreated(payload)
+    case "transaction.completed":
+        await handleTransactionCompleted(payload)
+    case "transaction.failed":
+        await handleTransactionFailed(payload)
+    case "wallet.updated":
+        await handleWalletUpdated(payload)
+    default:
+        throw WebhookError.unknownEvent
+    }
+    
+    return Response(status: .ok)
+}
+```
+
+### Webhook Event Handlers
+
+```swift
+func handleTransactionCompleted(_ payload: [String: Any]) async {
+    guard let transactionId = payload["transaction_id"] as? String,
+          let amount = Decimal(string: payload["amount"] as? String ?? "0"),
+          let metadata = payload["metadata"] as? [String: String],
+          let orderId = metadata["order_id"] else {
+        return
+    }
+    
+    // Update order status
+    await updateOrderStatus(orderId: orderId, status: .paid)
+    
+    // Update loyalty points if applicable
+    if let loyaltyPoints = metadata["loyalty_points"],
+       let points = Int(loyaltyPoints) {
+        await updateUserLoyaltyPoints(points: points)
+    }
+    
+    // Send notification to user
+    await sendPaymentSuccessNotification(transactionId: transactionId, amount: amount)
+}
+```
+
+## 4. Implementation Steps
+
+### Phase 1: Setup and Configuration
+
+1. Add Vizion Gateway SDK to your project
+2. Configure API keys and endpoints
+3. Set up webhook endpoints
+4. Create test environment
+
+### Phase 2: Core Payment Integration
+
+1. Replace PaymentHandler with PaymentManager
+2. Update payment processing flow
+3. Implement transaction queries
+4. Test basic payment functionality
+
+### Phase 3: Wallet System Migration
+
+1. Map existing wallets to Vizion Gateway wallets
+2. Implement balance transfers
+3. Update UI to display wallet information
+4. Test wallet functionality
+
+### Phase 4: Loyalty & Subscription Migration
+
+1. Implement loyalty point tracking with transaction metadata
+2. Set up subscription management with recurring payments
+3. Update UI for loyalty and subscription features
+4. Test loyalty and subscription functionality
+
+### Phase 5: Testing and Deployment
+
+1. Comprehensive testing in sandbox environment
+2. Migration of existing data
+3. Gradual rollout to production
+4. Monitor for issues and optimize
+
+## 5. Data Migration
+
+### User Data
+
+```swift
+// Migrate user payment methods
+func migrateUserPaymentMethods(userId: String) async throws {
+    // Get existing payment methods from Firestore
+    let existingMethods = await fetchFirestorePaymentMethods(userId: userId)
+    
+    // Create new payment methods in Vizion Gateway
+    for method in existingMethods {
+        // Map to new format and save
+        let newMethod = mapToVizionGatewayFormat(method)
+        try await savePaymentMethod(userId: userId, method: newMethod)
+    }
+}
+```
+
+### Transaction Data
+
+```swift
+// Migrate transaction history
+func migrateTransactionHistory(userId: String) async throws {
+    // Get existing transactions from Firestore
+    let existingTransactions = await fetchFirestoreTransactions(userId: userId)
+    
+    // Create transaction records in Vizion Gateway
+    for transaction in existingTransactions {
+        // Map to new format and save
+        let newTransaction = mapToVizionGatewayFormat(transaction)
+        try await saveTransactionRecord(transaction: newTransaction)
+    }
+}
+```
+
+## 6. Error Handling and Fallback
+
+```swift
+// Implement error handling
+func processPaymentWithFallback(amount: Decimal, currency: Currency, method: PaymentMethod) async throws -> PaymentResult {
+    do {
+        return try await PaymentManager.shared.processPayment(
+            amount: amount,
+            currency: currency,
+            method: method,
+            sourceId: currentUser.id,
+            destinationId: restaurant.id,
+            metadata: ["order_id": order.id]
+        )
+    } catch let error as PaymentError {
+        // Log error
+        logPaymentError(error)
+        
+        // Handle specific errors
+        switch error {
+        case .invalidAmount:
+            throw ChefAppError.invalidOrderAmount
+        case .insufficientFunds:
+            throw ChefAppError.insufficientFunds
+        case .cardDeclined:
+            throw ChefAppError.paymentDeclined
+        default:
+            // Fallback to alternative payment method if available
+            if let fallbackMethod = getFallbackPaymentMethod() {
+                return try await processPaymentWithFallback(
+                    amount: amount,
+                    currency: currency,
+                    method: fallbackMethod
+                )
+            } else {
+                throw ChefAppError.paymentFailed(error.localizedDescription)
+            }
+        }
+    }
+}
+```
+
+## 7. Testing Plan
+
+1. Unit Tests
+   - Test payment processing
+   - Test refund processing
+   - Test transaction queries
+   - Test webhook verification
+
+2. Integration Tests
+   - Test end-to-end payment flow
+   - Test webhook handling
+   - Test error scenarios
+
+3. Performance Tests
+   - Test transaction throughput
+   - Test response times
+   - Test concurrent transactions
+
+## 8. Rollout Strategy
+
+1. Alpha Testing (Internal)
+   - Test with development team
+   - Fix critical issues
+
+2. Beta Testing (Limited Users)
+   - Test with select customers
+   - Gather feedback
+   - Optimize performance
+
+3. Gradual Rollout
+   - Roll out to 10% of users
+   - Monitor for issues
+   - Increase to 50% if stable
+   - Full rollout
+
+4. Monitoring and Support
+   - Monitor transaction success rate
+   - Track error rates
+   - Provide customer support for payment issues
+
+## 9. Security Considerations
+
+1. API Token Security
+   - Store API tokens securely
+   - Implement IP restrictions
+   - Rotate tokens periodically
+
+2. Webhook Security
+   - Verify signatures
+   - Use HTTPS
+   - Implement rate limiting
+
+3. PCI Compliance
+   - Ensure PCI DSS compliance
+   - Regular security audits
+   - Secure data storage
+
+## 10. Documentation
+
+1. Developer Documentation
+   - API integration guide
+   - Webhook integration guide
+   - Error handling guide
+
+2. User Documentation
+   - Updated payment flow
+   - New features
+   - FAQ for payment issues 
